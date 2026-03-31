@@ -1196,21 +1196,26 @@
         }
 
         function killAllApiDevices() {
-            const devices = {{ data.network_device|tojson }};
-            if (devices.length === 0) {
-                showToast('장치가 없습니다', 'error');
-                return;
-            }
-            
-            if (!confirm(`${devices.length}개의 장치를 모두 차단하시겠습니까?`)) {
-                return;
-            }
-            
-            devices.forEach(device => {
-                controlDevice(device.MAC, 'speed', '0');
-            });
-            
-            showToast(`${devices.length}개 장치 차단됨`);
+            fetch('/api/devices')
+                .then(r => r.json())
+                .then(data => {
+                    const devices = data.network_device || [];
+                    if (devices.length === 0) {
+                        showToast('장치가 없습니다', 'error');
+                        return;
+                    }
+                    
+                    if (!confirm(`${devices.length}개의 장치를 모두 차단하시겠습니까?`)) {
+                        return;
+                    }
+                    
+                    devices.forEach(device => {
+                        controlDevice(device.MAC, 'speed', '0');
+                    });
+                    
+                    showToast(`${devices.length}개 장치 차단됨`);
+                })
+                .catch(err => showToast('API 로드 실패', 'error'));
         }
 
         function showToast(message, type = 'success') {
