@@ -16,6 +16,10 @@ app = Flask(__name__)
 API_BASE = "http://127.0.0.1:4622"
 DATA_FILE = os.path.join(os.path.dirname(__file__), "새 텍스트 문서.txt")
 
+# If True, forward control calls to external API at `API_BASE`.
+# Set to False to avoid making outbound connections and handle control locally (simulation).
+USE_EXTERNAL_API = False
+
 scan_results = []
 scan_status = "idle"
 last_scan = None
@@ -103,6 +107,19 @@ def api_scan_arp():
 def api_control(action, mac, value):
     import urllib.request
     url = make_api_url(action, mac, value)
+    # If external API usage is disabled, do not attempt outbound connection.
+    if not USE_EXTERNAL_API:
+        # Simulate control action locally: log and return success
+        print(f"api_control: external API disabled, simulated {action} {mac} {value}")
+        # Optionally, update in-memory scan_results to reflect change (best-effort)
+        try:
+            for d in scan_results:
+                if d.get('mac') == mac or d.get('MAC') == mac:
+                    d['last_control'] = {'action': action, 'value': value, 'timestamp': datetime.now().isoformat()}
+        except Exception:
+            pass
+        return jsonify({"success": True, "url": None, "response": "simulated"})
+
     try:
         with urllib.request.urlopen(url, timeout=5) as response:
             result = response.read().decode('utf-8')
