@@ -1,4 +1,5 @@
 import socket
+import ipaddress
 import subprocess
 import platform
 from datetime import datetime
@@ -367,34 +368,56 @@ def scan_network(callback=None):
     local_info = get_local_info()
     gateway = local_info.get('gateway', '')
     local_ip = local_info.get('local_ip', '')
+    subnet_mask = local_info.get('subnet', '')
     
     devices = []
-    base_ip = None
-    
-    if gateway:
-        gateway_parts = gateway.split('.')
-        if len(gateway_parts) == 4:
-            base_ip = f"{gateway_parts[0]}.{gateway_parts[1]}.{gateway_parts[2]}"
-    elif local_ip:
-        local_parts = local_ip.split('.')
-        if len(local_parts) == 4:
-            base_ip = f"{local_parts[0]}.{local_parts[1]}.{local_parts[2]}"
-    
-    if base_ip:
-        all_ips = [f"{base_ip}.{i}" for i in range(1, 255)]
-        
-        with ThreadPoolExecutor(max_workers=100) as executor:
-            futures = {executor.submit(scan_ip, ip): ip for ip in all_ips}
-            
-            for future in as_completed(futures):
-                try:
-                    result = future.result()
-                    if result:
-                        devices.append(result)
-                        if callback:
-                            callback(result)
-                except:
-                    pass
+
+    # Determine network to scan using subnet mask if available, otherwise infer
+    network = None
+    try:
+        if subnet_mask and ('.' in subnet_mask or subnet_mask.startswith('/')):
+            # subnet may be like '255.255.255.0' or '/24'
+            mask = subnet_mask if subnet_mask.startswith('/') else subnet_mask
+            # ip_network accepts 'ip/netmask' where netmask can be a mask like 255.255.255.0
+            network = ipaddress.ip_network(f"{local_ip}/{mask}", strict=False)
+        elif gateway:
+            # fall back to gateway's /24
+            gateway_parts = gateway.split('.')
+            if len(gateway_parts) == 4:
+                network = ipaddress.ip_network(f"{gateway_parts[0]}.{gateway_parts[1]}.{gateway_parts[2]}.0/24", strict=False)
+        elif local_ip:
+            # no gateway or subnet info; infer default prefix
+            if local_ip.startswith('10.') or local_ip.startswith('11.'):
+                # larger private network - default to /16 to cover typical site-local ranges
+                network = ipaddress.ip_network(f"{local_ip}/16", strict=False)
+            else:
+                network = ipaddress.ip_network(f"{local_ip}/24", strict=False)
+    except Exception:
+        network = None
+
+    if network is None:
+        return {
+            "devices": [],
+            "local_info": local_info,
+            "scanned_at": datetime.now().isoformat(),
+            "total_found": 0
+        }
+
+    # Build host list (exclude network and broadcast)
+    all_ips = [str(ip) for ip in network.hosts()]
+
+    with ThreadPoolExecutor(max_workers=100) as executor:
+        futures = {executor.submit(scan_ip, ip): ip for ip in all_ips}
+
+        for future in as_completed(futures):
+            try:
+                result = future.result()
+                if result:
+                    devices.append(result)
+                    if callback:
+                        callback(result)
+            except:
+                pass
     
     return {
         "devices": devices,
