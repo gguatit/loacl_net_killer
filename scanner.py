@@ -29,6 +29,15 @@ OUI_VENDORS = {
 def get_local_info():
     hostname = socket.gethostname()
     local_ip = socket.gethostbyname(hostname)
+    # If hostname resolves to loopback, try a UDP socket to detect the real local IP
+    try:
+        if local_ip.startswith('127.'):
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(('8.8.8.8', 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+    except:
+        pass
     
     mac_address = ""
     gateway = ""
@@ -242,10 +251,14 @@ def get_mac_from_arp(ip):
             errors='replace'
         )
         for line in result.stdout.split('\n'):
-            if '-' in line and ':' in line:
+            # Accept MAC in formats with '-' or ':' or '.'
+            if ('-' in line) or (':' in line) or ('.' in line):
                 parts = line.split()
                 if len(parts) >= 2 and parts[0] == ip:
-                    mac = parts[1].replace('-', ':').upper()
+                    mac = parts[1].replace('-', ':').replace('.', '').upper()
+                    # normalize dotted mac like aabb.ccdd.eeff -> AABBCCDDEEFF then insert ':'
+                    if len(mac) == 12:
+                        mac = ':'.join([mac[i:i+2] for i in range(0, 12, 2)])
                     if mac != "FF:FF:FF:FF:FF:FF" and mac != "00:00:00:00:00:00":
                         return mac
     except:
@@ -303,20 +316,23 @@ def arp_scan():
         
         if 'interface' in line.lower() or '---' in line:
             continue
-            
-        if '-' in line and ':' in line:
+        # Accept lines with MAC in '-', ':' or '.' formats
+        if ('-' in line) or (':' in line) or ('.' in line):
             parts = line.split()
             if len(parts) >= 2:
                 ip = parts[0]
-                mac = parts[1].replace('-', ':').upper()
-                
+                raw_mac = parts[1]
+                mac = raw_mac.replace('-', ':').replace('.', '').upper()
+                if len(mac) == 12:
+                    mac = ':'.join([mac[i:i+2] for i in range(0, 12, 2)])
+
                 if ip in seen_ips:
                     continue
                 seen_ips.add(ip)
-                
+
                 if mac == "FF:FF:FF:FF:FF:FF" or mac == "00:00:00:00:00:00":
                     continue
-                
+
                 ips_to_check.append((ip, mac))
     
     def process_arp_device(args):
