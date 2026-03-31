@@ -168,27 +168,55 @@ def get_mac_address():
 
 def ping_host_fast(ip):
     try:
-        param = '-n' if platform.system().lower() == 'windows' else '-c'
+        system = platform.system().lower()
+        ttl = 0
+        if system == 'windows':
+            # -n 1 : one echo, -w 1000 : timeout in ms
+            cmd = ['ping', '-n', '1', '-w', '1000', ip]
+            timeout_sec = 4
+        else:
+            # unix-like: -c 1 one echo, -W 1 timeout in seconds (some systems use -W)
+            # Use -c and -W where available; fallback to -c only
+            cmd = ['ping', '-c', '1', '-W', '1', ip]
+            timeout_sec = 4
+
         result = subprocess.run(
-            ['ping', param, '1', '-w', '100', ip],
+            cmd,
             capture_output=True,
-            timeout=0.5,
+            timeout=timeout_sec,
             encoding='utf-8',
             errors='replace'
         )
-        if result.returncode == 0:
-            output = result.stdout.upper()
-            ttl = 64
-            for line in output.split('\n'):
-                if 'TTL=' in line:
+
+        out = result.stdout or ''
+        out_lower = out.lower()
+        # Determine success by returncode or presence of reply text
+        success = (result.returncode == 0) or ('reply from' in out_lower) or ('bytes from' in out_lower)
+        if success:
+            # try to extract TTL value
+            ttl = 0
+            for line in out.split('\n'):
+                l = line.upper()
+                if 'TTL=' in l:
                     try:
-                        ttl_str = line.split('TTL=')[-1].split()[0]
-                        ttl = int(ttl_str)
+                        ttl_str = l.split('TTL=')[-1].split()[0]
+                        ttl = int(''.join(ch for ch in ttl_str if ch.isdigit()))
+                        break
                     except:
-                        pass
-                    return True, ttl
+                        continue
+                # linux output example: "64 bytes from 192.168.1.1: icmp_seq=1 ttl=64 time=0.123 ms"
+                if ' ttl=' in line.lower():
+                    try:
+                        parts = line.lower().split(' ttl=')[-1]
+                        ttl = int(parts.split()[0])
+                        break
+                    except:
+                        continue
+            if ttl == 0:
+                ttl = 64
+            return True, ttl
         return False, 0
-    except:
+    except Exception:
         return False, 0
 
 def get_hostname_from_ip(ip):
