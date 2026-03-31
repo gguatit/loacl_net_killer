@@ -1,4 +1,5 @@
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, Response
+import urllib.parse
 import json
 import os
 import threading
@@ -28,7 +29,10 @@ def load_network_data():
         return {"ResponseStat": "ERROR", "error": str(e), "network_device": []}
 
 def make_api_url(action, mac, value):
-    return f"{API_BASE}/{action}/{mac}/{value}"
+    # URL-encode mac and value to safely include characters like ':'
+    mac_enc = urllib.parse.quote(mac, safe='')
+    val_enc = urllib.parse.quote(str(value), safe='')
+    return f"{API_BASE}/{urllib.parse.quote(action, safe='')}/{mac_enc}/{val_enc}"
 
 def scan_worker():
     global scan_results, scan_status, scan_progress, last_scan
@@ -104,7 +108,15 @@ def api_control(action, mac, value):
             result = response.read().decode('utf-8')
             return jsonify({"success": True, "url": url, "response": result})
     except Exception as e:
+        # Log full exception to server console for debugging
+        print(f"api_control error calling {url}: {e}")
         return jsonify({"success": False, "url": url, "error": str(e)}), 500
+
+
+@app.route('/favicon.ico')
+def favicon():
+    # avoid 404 for favicon requests
+    return Response(status=204)
 
 if __name__ == '__main__':
     print("=" * 60)
