@@ -1011,6 +1011,7 @@
                         const btn = document.getElementById('scanBtn');
                         btn.disabled = false;
                         btn.innerHTML = '스캔 시작';
+                        const status = document.getElementById('scanStatus');
                         status.className = 'status-bar';
                     }
                 });
@@ -1068,8 +1069,8 @@
                         <td class="vendor-tag">${d.vendor || '알 수 없음'}</td>
                         <td><span class="os-tag">${d.os_estimate || '알 수 없음'}</span></td>
                         <td>${d.ttl || '-'}</td>
-                    </tr>`;
-                }).join('');
+                    </tr>`
+                ).join('');
             }
         }
 
@@ -1111,8 +1112,8 @@
                                 <td class="vendor-tag">${d.vendor || '알 수 없음'}</td>
                                 <td><span class="os-tag">${d.os_estimate || '알 수 없음'}</span></td>
                                 <td>${d.ttl || '-'}</td>
-                            </tr>`;
-                        }).join('');
+                            </tr>`
+                        ).join('');
                     }
                 })
                 .catch(err => {
