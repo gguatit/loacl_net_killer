@@ -1,0 +1,1269 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>네트워크 장치 제어기</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        :root {
+            --bg-primary: #0d0d0d;
+            --bg-secondary: #1a1a1a;
+            --bg-tertiary: #262626;
+            --bg-hover: #333333;
+            --text-primary: #ffffff;
+            --text-secondary: #b3b3b3;
+            --text-muted: #666666;
+            --border: #333333;
+        }
+        
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+        
+        .header {
+            background: var(--bg-secondary);
+            padding: 25px 30px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .header h1 {
+            font-size: 20px;
+            font-weight: 300;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            color: var(--text-primary);
+        }
+        
+        .header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header-bar p {
+            color: var(--text-muted);
+            font-size: 12px;
+            margin-top: 5px;
+        }
+        
+        .header-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn-danger-all {
+            padding: 10px 20px;
+            background: var(--text-primary);
+            color: var(--bg-primary);
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.2s;
+        }
+        
+        .btn-danger-all:hover {
+            background: var(--text-secondary);
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 25px 30px;
+        }
+        
+        .tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: -1px;
+        }
+        
+        .tab {
+            padding: 14px 35px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-bottom: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 12px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            transition: all 0.2s;
+        }
+        
+        .tab:first-child { border-radius: 6px 0 0 0; }
+        .tab:last-child { border-radius: 0 6px 0 0; }
+        
+        .tab:hover {
+            background: var(--bg-hover);
+            color: var(--text-secondary);
+        }
+        
+        .tab.active {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+        }
+        
+        .tab-content {
+            display: none;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 0 0 6px 6px;
+            padding: 25px;
+        }
+        
+        .tab-content.active { display: block; }
+        
+        .local-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-bottom: 25px;
+        }
+        
+        .info-card {
+            background: var(--bg-tertiary);
+            padding: 16px;
+            border-radius: 4px;
+            border-left: 3px solid var(--text-muted);
+        }
+        
+        .info-card label {
+            font-size: 9px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            display: block;
+            margin-bottom: 6px;
+        }
+        
+        .info-card .value {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-primary);
+            font-family: 'Consolas', monospace;
+            word-break: break-all;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            padding: 11px 24px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            transition: all 0.2s;
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+        }
+        
+        .btn:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+            border-color: var(--text-muted);
+        }
+        
+        .btn:disabled {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+        
+        .btn-primary {
+            background: var(--text-primary);
+            color: var(--bg-primary);
+            border-color: var(--text-primary);
+        }
+        
+        .btn-primary:hover {
+            background: var(--text-secondary);
+        }
+        
+        .btn-danger {
+            background: var(--text-primary);
+            color: var(--bg-primary);
+            border-color: var(--text-primary);
+        }
+        
+        .btn-danger:hover {
+            background: var(--text-secondary);
+        }
+        
+        .status-bar {
+            padding: 14px 20px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+        }
+        
+        .status-bar .spinner {
+            display: none;
+            width: 12px;
+            height: 12px;
+            border: 2px solid var(--text-muted);
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-right: 8px;
+        }
+        
+        .status-bar.scanning .spinner { display: inline-block; }
+        
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .status-bar .time {
+            color: var(--text-muted);
+            font-size: 11px;
+        }
+        
+        .progress-container { margin-top: 12px; }
+        .progress-bar {
+            height: 2px;
+            background: var(--bg-tertiary);
+            border-radius: 1px;
+            overflow: hidden;
+        }
+        .progress-bar .progress {
+            height: 100%;
+            background: var(--text-secondary);
+            transition: width 0.3s;
+            width: 0%;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-bottom: 25px;
+        }
+        
+        .stat-card {
+            background: var(--bg-tertiary);
+            padding: 20px;
+            border-radius: 4px;
+            text-align: center;
+            border: 1px solid var(--border);
+        }
+        
+        .stat-card h3 {
+            font-size: 32px;
+            font-weight: 200;
+            color: var(--text-primary);
+            margin-bottom: 6px;
+        }
+        
+        .stat-card p {
+            font-size: 9px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+        
+        .device-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            overflow: hidden;
+            font-size: 12px;
+        }
+        
+        .device-table th,
+        .device-table td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .device-table tbody tr:hover td {
+            background: var(--bg-hover);
+        }
+        
+        .device-table tbody tr {
+            cursor: pointer;
+        }
+        
+        .device-table th {
+            background: var(--bg-hover);
+            color: var(--text-muted);
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            font-weight: 500;
+            cursor: default;
+        }
+        
+        .device-table tbody tr:last-child td { border-bottom: none; }
+        
+        .badge {
+            padding: 3px 10px;
+            border-radius: 2px;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-weight: 500;
+            background: var(--bg-primary);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+        }
+        
+        .badge.online {
+            background: var(--text-primary);
+            color: var(--bg-primary);
+            border-color: var(--text-primary);
+        }
+        
+        .ip-col {
+            font-family: 'Consolas', monospace;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+        
+        .mac-col {
+            font-family: 'Consolas', monospace;
+            color: var(--text-secondary);
+            font-size: 11px;
+        }
+        
+        .vendor-tag {
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+        
+        .os-tag {
+            padding: 2px 8px;
+            border-radius: 2px;
+            font-size: 9px;
+            background: var(--bg-primary);
+            color: var(--text-secondary);
+            border: 1px solid var(--border);
+            text-transform: uppercase;
+        }
+        
+        .device-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+            gap: 15px;
+        }
+        
+        .device-card {
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            overflow: hidden;
+            border: 1px solid var(--border);
+            transition: all 0.2s;
+        }
+        
+        .device-card:hover {
+            border-color: var(--text-muted);
+        }
+        
+        .device-header {
+            background: var(--bg-hover);
+            padding: 14px 18px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .device-header .mac {
+            font-size: 11px;
+            color: var(--text-secondary);
+            font-family: 'Consolas', monospace;
+        }
+        
+        .device-header .ip {
+            font-size: 14px;
+            font-weight: 500;
+            font-family: 'Consolas', monospace;
+        }
+        
+        .device-body { padding: 18px; }
+        
+        .device-meta {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 18px;
+        }
+        
+        .meta-item {
+            background: var(--bg-primary);
+            padding: 10px;
+            border-radius: 3px;
+        }
+        
+        .meta-item label {
+            display: block;
+            font-size: 8px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 3px;
+        }
+        
+        .meta-item .value {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        
+        .control-section {
+            margin-bottom: 16px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .control-section:last-child {
+            margin-bottom: 0;
+            padding-bottom: 0;
+            border-bottom: none;
+        }
+        
+        .control-section h4 {
+            color: var(--text-muted);
+            margin-bottom: 10px;
+            font-size: 9px;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            font-weight: 500;
+        }
+        
+        .btn-group {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        
+        .btn-sm {
+            padding: 7px 12px;
+            font-size: 9px;
+        }
+        
+        .speed-input {
+            display: flex;
+            gap: 6px;
+            margin-top: 10px;
+        }
+        
+        .speed-input input {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 12px;
+        }
+        
+        .speed-input input:focus {
+            outline: none;
+            border-color: var(--text-muted);
+        }
+        
+        .game-locks {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 6px;
+        }
+        
+        .game-btn {
+            padding: 8px;
+            font-size: 9px;
+            text-align: center;
+            background: var(--bg-primary);
+            color: var(--text-secondary);
+        }
+        
+        .game-btn:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 25px;
+            right: 25px;
+            padding: 14px 24px;
+            border-radius: 3px;
+            color: var(--bg-primary);
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.3s;
+            z-index: 1000;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .toast.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        
+        .toast.success { background: var(--text-primary); }
+        .toast.error { background: var(--text-muted); }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-muted);
+        }
+        
+        .empty-state .icon {
+            font-size: 36px;
+            margin-bottom: 15px;
+            opacity: 0.3;
+        }
+        
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.8);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .modal-overlay.show {
+            display: flex;
+        }
+        
+        .modal {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            width: 400px;
+            max-width: 90%;
+            overflow: hidden;
+        }
+        
+        .modal-header {
+            background: var(--bg-hover);
+            padding: 18px 22px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .modal-header h3 {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-primary);
+        }
+        
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            font-size: 20px;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+        }
+        
+        .modal-close:hover {
+            color: var(--text-primary);
+        }
+        
+        .modal-body {
+            padding: 22px;
+        }
+        
+        .modal-device-info {
+            background: var(--bg-tertiary);
+            padding: 14px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 12px;
+        }
+        
+        .modal-device-info div {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+        }
+        
+        .modal-device-info div:last-child {
+            margin-bottom: 0;
+        }
+        
+        .modal-device-info label {
+            color: var(--text-muted);
+        }
+        
+        .modal-device-info span {
+            color: var(--text-primary);
+            font-family: 'Consolas', monospace;
+        }
+        
+        .modal-section {
+            margin-bottom: 20px;
+        }
+        
+        .modal-section:last-child {
+            margin-bottom: 0;
+        }
+        
+        .modal-section h4 {
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+        
+        .modal-speed {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        
+        .modal-speed input {
+            flex: 1;
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            font-size: 13px;
+        }
+        
+        .modal-speed input:focus {
+            outline: none;
+            border-color: var(--text-muted);
+        }
+        
+        .modal-btn-group {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+        
+        .modal-btn {
+            padding: 10px 18px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .modal-btn:hover {
+            background: var(--bg-hover);
+            color: var(--text-primary);
+        }
+        
+        .modal-btn.kill {
+            background: var(--text-primary);
+            color: var(--bg-primary);
+            border-color: var(--text-primary);
+        }
+        
+        .modal-btn.kill:hover {
+            background: var(--text-secondary);
+        }
+        
+        @media (max-width: 900px) {
+            .device-grid { grid-template-columns: 1fr; }
+            .stats { grid-template-columns: repeat(2, 1fr); }
+            .header-bar { flex-direction: column; gap: 15px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-bar">
+            <div>
+                <h1>네트워크 장치 제어기</h1>
+                <p>로컬 네트워크 관리 대시보드</p>
+            </div>
+            <div class="header-actions">
+                <button class="btn-danger-all" onclick="killAllDevices()">ALL KILL</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="container">
+        <div class="tabs">
+            <button class="tab active" onclick="switchTab('scan')">네트워크 스캔</button>
+            <button class="tab" onclick="switchTab('api')">API 장치</button>
+        </div>
+        
+        <div id="tab-scan" class="tab-content active">
+            <div class="local-info" id="localInfo"></div>
+            
+            <div class="controls">
+                <button class="btn btn-primary" id="scanBtn" onclick="startScan()">
+                    <span class="spinner"></span> 스캔 시작
+                </button>
+                <button class="btn" onclick="loadArpTable()">ARP 테이블</button>
+                <button class="btn" onclick="loadLocalInfo()">정보 새로고침</button>
+            </div>
+            
+            <div class="status-bar" id="scanStatus">
+                <span><span class="spinner"></span> "스캔 시작" 버튼을 클릭하여 네트워크를 스캔하세요</span>
+                <span class="time" id="scanTime"></span>
+            </div>
+            
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div class="progress" id="progress"></div>
+                </div>
+            </div>
+            
+            <div class="stats">
+                <div class="stat-card">
+                    <h3 id="totalDevices">0</h3>
+                    <p>전체 장치</p>
+                </div>
+                <div class="stat-card">
+                    <h3 id="onlineDevices">0</h3>
+                    <p>온라인</p>
+                </div>
+                <div class="stat-card">
+                    <h3 id="offlineDevices">0</h3>
+                    <p>오프라인</p>
+                </div>
+                <div class="stat-card">
+                    <h3 id="scannedCount">0</h3>
+                    <p>스캔됨</p>
+                </div>
+            </div>
+            
+            <table class="device-table" id="scanTable">
+                <thead>
+                    <tr>
+                        <th>상태</th>
+                        <th>IP 주소</th>
+                        <th>호스트명</th>
+                        <th>MAC 주소</th>
+                        <th>제조사</th>
+                        <th>OS 추정</th>
+                        <th>TTL</th>
+                    </tr>
+                </thead>
+                <tbody id="scanTableBody">
+                    <tr>
+                        <td colspan="7">
+                            <div class="empty-state">
+                                <div class="icon">○</div>
+                                <p>스캔 결과가 없습니다. "스캔 시작" 버튼을 클릭하세요</p>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        
+        <div id="tab-api" class="tab-content">
+            <div class="controls">
+                <button class="btn btn-primary" onclick="location.reload()">새로고침</button>
+                <button class="btn btn-danger" onclick="killAllApiDevices()">ALL KILL</button>
+            </div>
+            
+            <div class="stats">
+                <div class="stat-card">
+                    <h3>{{ data.network_device|length }}</h3>
+                    <p>전체 장치</p>
+                </div>
+                <div class="stat-card">
+                    <h3>{{ data.network_device|selectattr('SpeedLimit', 'equalto', -1)|list|length }}</h3>
+                    <p>무제한</p>
+                </div>
+                <div class="stat-card">
+                    <h3>{{ data.network_device|selectattr('SpeedLimit', 'equalto', 0)|list|length }}</h3>
+                    <p>차단됨</p>
+                </div>
+                <div class="stat-card">
+                    <h3>{{ data.network_device|length - data.network_device|selectattr('SpeedLimit', 'equalto', -1)|list|length - data.network_device|selectattr('SpeedLimit', 'equalto', 0)|list|length }}</h3>
+                    <p>제한됨</p>
+                </div>
+            </div>
+
+            <div class="device-grid" id="deviceGrid">
+                {% for device in data.network_device %}
+                <div class="device-card" data-mac="{{ device.MAC }}">
+                    <div class="device-header">
+                        <span class="mac">{{ device.MAC }}</span>
+                        <span class="ip">{{ device.IP }}</span>
+                    </div>
+                    <div class="device-body">
+                        <div class="device-meta">
+                            <div class="meta-item">
+                                <label>호스트명</label>
+                                <div class="value">{{ device.HostName or 'N/A' }}</div>
+                            </div>
+                            <div class="meta-item">
+                                <label>속도제한</label>
+                                <div class="value">{{ device.SpeedLimit if device.SpeedLimit != -1 else '무제한' }}</div>
+                            </div>
+                            <div class="meta-item">
+                                <label>지연(출력)</label>
+                                <div class="value">{{ device.LagSwitchOutGoingMiliSecond }}ms</div>
+                            </div>
+                            <div class="meta-item">
+                                <label>지연(입력)</label>
+                                <div class="value">{{ device.LagSwitchIncomingMiliSecond }}ms</div>
+                            </div>
+                        </div>
+
+                        <div class="control-section">
+                            <h4>인터넷 제어</h4>
+                            <div class="btn-group">
+                                <button class="btn btn-sm" onclick="controlDevice('{{ device.MAC }}', 'speed', '0')">차단</button>
+                                <button class="btn btn-sm" onclick="controlDevice('{{ device.MAC }}', 'speed', 'unlimit')">복원</button>
+                            </div>
+                            <div class="speed-input">
+                                <input type="number" id="speed-{{ device.MAC }}" placeholder="속도 (KB/s)" min="1">
+                                <button class="btn btn-sm" onclick="setSpeed('{{ device.MAC }}')">설정</button>
+                            </div>
+                        </div>
+
+                        <div class="control-section">
+                            <h4>지연 스위치</h4>
+                            <div class="btn-group">
+                                <button class="btn btn-sm" onclick="controlDevice('{{ device.MAC }}', 'lagout', '1000')">출력 +1초</button>
+                                <button class="btn btn-sm" onclick="controlDevice('{{ device.MAC }}', 'lagout', '0')">출력 초기화</button>
+                                <button class="btn btn-sm" onclick="controlDevice('{{ device.MAC }}', 'lagin', '1000')">입력 +1초</button>
+                                <button class="btn btn-sm" onclick="controlDevice('{{ device.MAC }}', 'lagin', '0')">입력 초기화</button>
+                            </div>
+                        </div>
+
+                        <div class="control-section">
+                            <h4>게임 잠금</h4>
+                            <div class="game-locks">
+                                <button class="btn btn-sm game-btn" onclick="toggleLock('{{ device.MAC }}', 'ps4lock')">PS4 잠금</button>
+                                <button class="btn btn-sm game-btn" onclick="toggleLock('{{ device.MAC }}', 'ps5lock')">PS5 잠금</button>
+                                <button class="btn btn-sm game-btn" onclick="toggleLock('{{ device.MAC }}', 'xboxlock')">Xbox 잠금</button>
+                                <button class="btn btn-sm game-btn" onclick="toggleLock('{{ device.MAC }}', 'rd2solo')">RD2 솔로</button>
+                                <button class="btn btn-sm game-btn" onclick="toggleLock('{{ device.MAC }}', 'goodsport')">GoodSport</button>
+                                <button class="btn btn-sm game-btn" onclick="toggleLock('{{ device.MAC }}', 'dayzghost')">DayZ 고스트</button>
+                                <button class="btn btn-sm game-btn" onclick="toggleLock('{{ device.MAC }}', 'innerpeace')">InnerPeace</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+    
+    <div class="modal-overlay" id="deviceModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>장치 제어</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-device-info" id="modalDeviceInfo">
+                    <div><label>IP:</label><span id="modalIp">-</span></div>
+                    <div><label>MAC:</label><span id="modalMac">-</span></div>
+                    <div><label>호스트명:</label><span id="modalHostname">-</span></div>
+                    <div><label>제조사:</label><span id="modalVendor">-</span></div>
+                </div>
+                
+                <div class="modal-section">
+                    <h4>속도 제한</h4>
+                    <div class="modal-speed">
+                        <input type="number" id="modalSpeedInput" placeholder="속도 (KB/s)" min="1">
+                        <button class="modal-btn" onclick="setModalSpeed()">적용</button>
+                    </div>
+                    <div class="modal-btn-group">
+                        <button class="modal-btn kill" onclick="killDevice()">차단</button>
+                        <button class="modal-btn" onclick="resumeDevice()">복원</button>
+                        <button class="modal-btn" onclick="setModalSpeedPreset(5)">5KB/s</button>
+                        <button class="modal-btn" onclick="setModalSpeedPreset(10)">10KB/s</button>
+                        <button class="modal-btn" onclick="setModalSpeedPreset(50)">50KB/s</button>
+                        <button class="modal-btn" onclick="setModalSpeedPreset(100)">100KB/s</button>
+                    </div>
+                </div>
+                
+                <div class="modal-section">
+                    <h4>지연 설정</h4>
+                    <div class="modal-btn-group">
+                        <button class="modal-btn" onclick="setModalLag('lagout', 500)">출력 +500ms</button>
+                        <button class="modal-btn" onclick="setModalLag('lagout', 1000)">출력 +1초</button>
+                        <button class="modal-btn" onclick="setModalLag('lagout', 0)">출력 초기화</button>
+                        <button class="modal-btn" onclick="setModalLag('lagin', 500)">입력 +500ms</button>
+                        <button class="modal-btn" onclick="setModalLag('lagin', 1000)">입력 +1초</button>
+                        <button class="modal-btn" onclick="setModalLag('lagin', 0)">입력 초기화</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let lockStates = {};
+        let pollInterval = null;
+        let currentTab = 'scan';
+        let totalScanned = 0;
+        let scannedDevices = [];
+        let selectedDevice = null;
+
+        function switchTab(tab) {
+            currentTab = tab;
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            document.querySelector(`[onclick="switchTab('${tab}')"]`).classList.add('active');
+            document.getElementById(`tab-${tab}`).classList.add('active');
+        }
+
+        function loadLocalInfo() {
+            fetch('/api/local-info')
+                .then(r => r.json())
+                .then(data => {
+                    document.getElementById('localInfo').innerHTML = `
+                        <div class="info-card">
+                            <label>호스트명</label>
+                            <div class="value">${data.hostname || 'N/A'}</div>
+                        </div>
+                        <div class="info-card">
+                            <label>내 IP</label>
+                            <div class="value">${data.local_ip || 'N/A'}</div>
+                        </div>
+                        <div class="info-card">
+                            <label>MAC 주소</label>
+                            <div class="value">${data.mac_address || 'N/A'}</div>
+                        </div>
+                        <div class="info-card">
+                            <label>게이트웨이</label>
+                            <div class="value">${data.gateway || '자동 감지...'}</div>
+                        </div>
+                        <div class="info-card">
+                            <label>서브넷</label>
+                            <div class="value">${data.subnet || 'N/A'}</div>
+                        </div>
+                        <div class="info-card">
+                            <label>OS</label>
+                            <div class="value">${data.os || 'Windows'}</div>
+                        </div>
+                    `;
+                })
+                .catch(err => console.error('로컬 정보 로드 실패:', err));
+        }
+
+        function startScan() {
+            const btn = document.getElementById('scanBtn');
+            const status = document.getElementById('scanStatus');
+            
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> 스캔 중...';
+            status.className = 'status-bar scanning';
+            status.innerHTML = '<span><span class="spinner"></span> 네트워크 스캔 중...</span>';
+            document.getElementById('progress').style.width = '0%';
+            totalScanned = 0;
+            scannedDevices = [];
+            
+            fetch('/api/scan/start')
+                .then(r => r.json())
+                .then(data => {
+                    pollScanStatus();
+                });
+        }
+
+        function pollScanStatus() {
+            fetch('/api/scan/status')
+                .then(r => r.json())
+                .then(data => {
+                    updateScanUI(data);
+                    
+                    if (data.status === 'scanning') {
+                        pollInterval = setTimeout(pollScanStatus, 300);
+                    } else {
+                        const btn = document.getElementById('scanBtn');
+                        btn.disabled = false;
+                        btn.innerHTML = '스캔 시작';
+                        status.className = 'status-bar';
+                    }
+                });
+        }
+
+        function updateScanUI(data) {
+            const status = document.getElementById('scanStatus');
+            const progress = document.getElementById('progress');
+            const scanTime = document.getElementById('scanTime');
+            
+            scannedDevices = data.devices || [];
+            const devices = scannedDevices;
+            const online = devices.filter(d => d.status === 'online').length;
+            
+            if (data.status === 'scanning') {
+                totalScanned += 5;
+                status.className = 'status-bar scanning';
+                status.innerHTML = `<span><span class="spinner"></span> 장치 ${devices.length}개 발견 (스캔 중...)</span>`;
+                progress.style.width = `${Math.min(totalScanned, 95)}%`;
+            } else if (data.status === 'completed') {
+                status.className = 'status-bar';
+                status.innerHTML = `<span>스캔 완료</span>`;
+                progress.style.width = '100%';
+                if (data.last_scan) {
+                    scanTime.textContent = `마지막 스캔: ${new Date(data.last_scan).toLocaleTimeString()}`;
+                }
+            } else {
+                status.className = 'status-bar';
+                status.innerHTML = `<span>"스캔 시작" 버튼을 클릭하여 네트워크를 스캔하세요</span>`;
+            }
+            
+            document.getElementById('totalDevices').textContent = devices.length;
+            document.getElementById('onlineDevices').textContent = online;
+            document.getElementById('offlineDevices').textContent = devices.length - online;
+            document.getElementById('scannedCount').textContent = 254;
+            
+            const tbody = document.getElementById('scanTableBody');
+            if (devices.length === 0 && data.status !== 'scanning') {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="7">
+                            <div class="empty-state">
+                                <div class="icon">○</div>
+                                <p>장치를 찾지 못했습니다. "스캔 시작" 버튼을 클릭하세요</p>
+                            </div>
+                        </td>
+                    </tr>`;
+            } else {
+                tbody.innerHTML = devices.map((d, idx) => `
+                    <tr onclick="openDeviceModal(${idx})">
+                        <td><span class="badge ${d.status === 'online' ? 'online' : ''}">${d.status === 'online' ? '온라인' : '오프라인'}</span></td>
+                        <td class="ip-col">${d.ip}</td>
+                        <td>${d.hostname || 'N/A'}</td>
+                        <td class="mac-col">${d.mac || 'N/A'}</td>
+                        <td class="vendor-tag">${d.vendor || '알 수 없음'}</td>
+                        <td><span class="os-tag">${d.os_estimate || '알 수 없음'}</span></td>
+                        <td>${d.ttl || '-'}</td>
+                    </tr>`;
+                }).join('');
+            }
+        }
+
+        function loadArpTable() {
+            const status = document.getElementById('scanStatus');
+            const btn = document.getElementById('scanBtn');
+            
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span> 로딩 중...';
+            status.className = 'status-bar scanning';
+            status.innerHTML = '<span><span class="spinner"></span> ARP 테이블 로딩 중...</span>';
+            
+            fetch('/api/scan/arp')
+                .then(r => r.json())
+                .then(devices => {
+                    btn.disabled = false;
+                    btn.innerHTML = '스캔 시작';
+                    status.className = 'status-bar';
+                    status.innerHTML = '<span>ARP 테이블 로드 완료 - ' + devices.length + '개 장치</span>';
+                    
+                    scannedDevices = devices;
+                    const online = devices.filter(d => d.status === 'online').length;
+                    
+                    document.getElementById('totalDevices').textContent = devices.length;
+                    document.getElementById('onlineDevices').textContent = online;
+                    document.getElementById('offlineDevices').textContent = devices.length - online;
+                    document.getElementById('scannedCount').textContent = devices.length;
+                    
+                    const tbody = document.getElementById('scanTableBody');
+                    if (devices.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #666;">ARP 테이블에 장치가 없습니다</td></tr>';
+                    } else {
+                        tbody.innerHTML = devices.map((d, idx) => `
+                            <tr onclick="openDeviceModal(${idx})">
+                                <td><span class="badge ${d.status === 'online' ? 'online' : ''}">${d.status === 'online' ? '온라인' : '오프라인'}</span></td>
+                                <td class="ip-col">${d.ip}</td>
+                                <td>${d.hostname || 'N/A'}</td>
+                                <td class="mac-col">${d.mac || 'N/A'}</td>
+                                <td class="vendor-tag">${d.vendor || '알 수 없음'}</td>
+                                <td><span class="os-tag">${d.os_estimate || '알 수 없음'}</span></td>
+                                <td>${d.ttl || '-'}</td>
+                            </tr>`;
+                        }).join('');
+                    }
+                })
+                .catch(err => {
+                    btn.disabled = false;
+                    btn.innerHTML = '스캔 시작';
+                    status.className = 'status-bar';
+                    status.innerHTML = '<span>ARP 테이블 로드 실패</span>';
+                    showToast('ARP 테이블 로드 실패', 'error');
+                });
+        }
+
+        function openDeviceModal(index) {
+            const device = scannedDevices[index];
+            if (!device) return;
+            
+            selectedDevice = device;
+            
+            document.getElementById('modalIp').textContent = device.ip || '-';
+            document.getElementById('modalMac').textContent = device.mac || '-';
+            document.getElementById('modalHostname').textContent = device.hostname || '-';
+            document.getElementById('modalVendor').textContent = device.vendor || '-';
+            document.getElementById('modalSpeedInput').value = '';
+            
+            document.getElementById('deviceModal').classList.add('show');
+        }
+
+        function closeModal() {
+            document.getElementById('deviceModal').classList.remove('show');
+            selectedDevice = null;
+        }
+
+        function setModalSpeed() {
+            if (!selectedDevice) return;
+            const speed = document.getElementById('modalSpeedInput').value;
+            if (speed && speed > 0) {
+                controlDevice(selectedDevice.mac, 'speed', speed);
+            } else {
+                showToast('유효한 속도 값을 입력하세요', 'error');
+            }
+        }
+
+        function setModalSpeedPreset(speed) {
+            if (!selectedDevice) return;
+            controlDevice(selectedDevice.mac, 'speed', speed);
+        }
+
+        function killDevice() {
+            if (!selectedDevice) return;
+            controlDevice(selectedDevice.mac, 'speed', '0');
+        }
+
+        function resumeDevice() {
+            if (!selectedDevice) return;
+            controlDevice(selectedDevice.mac, 'speed', 'unlimit');
+        }
+
+        function setModalLag(type, ms) {
+            if (!selectedDevice) return;
+            controlDevice(selectedDevice.mac, type, ms);
+        }
+
+        function killAllDevices() {
+            if (scannedDevices.length === 0) {
+                showToast('먼저 장치를 스캔하세요', 'error');
+                return;
+            }
+            
+            if (!confirm(`${scannedDevices.length}개의 장치를 모두 차단하시겠습니까?`)) {
+                return;
+            }
+            
+            let killed = 0;
+            scannedDevices.forEach(device => {
+                if (device.mac) {
+                    controlDevice(device.mac, 'speed', '0');
+                    killed++;
+                }
+            });
+            
+            showToast(`${killed}개 장치 차단됨`);
+        }
+
+        function killAllApiDevices() {
+            fetch('/api/devices')
+                .then(r => r.json())
+                .then(data => {
+                    const devices = data.network_device || [];
+                    if (devices.length === 0) {
+                        showToast('장치가 없습니다', 'error');
+                        return;
+                    }
+                    
+                    if (!confirm(`${devices.length}개의 장치를 모두 차단하시겠습니까?`)) {
+                        return;
+                    }
+                    
+                    devices.forEach(device => {
+                        controlDevice(device.MAC, 'speed', '0');
+                    });
+                    
+                    showToast(`${devices.length}개 장치 차단됨`);
+                })
+                .catch(err => showToast('API 로드 실패', 'error'));
+        }
+
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${type} show`;
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        function controlDevice(mac, action, value) {
+            fetch(`/api/control/${action}/${mac}/${value}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        showToast(`${mac}: ${action} - ${value}`);
+                    } else {
+                        showToast(`오류: ${data.error}`, 'error');
+                    }
+                })
+                .catch(err => showToast(`요청 실패`, 'error'));
+        }
+
+        function setSpeed(mac) {
+            const input = document.getElementById(`speed-${mac}`);
+            const value = input.value;
+            if (value && value > 0) {
+                controlDevice(mac, 'speed', value);
+            } else {
+                showToast('유효한 속도 값을 입력하세요', 'error');
+            }
+        }
+
+        function toggleLock(mac, lockType) {
+            const key = `${mac}-${lockType}`;
+            const newState = lockStates[key] === 'on' ? 'off' : 'on';
+            lockStates[key] = newState;
+            controlDevice(mac, lockType, newState);
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            loadLocalInfo();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeModal();
+            }
+        });
+    </script>
+</body>
+</html>

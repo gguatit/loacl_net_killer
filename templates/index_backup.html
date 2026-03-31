@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>네트워크 장치 제어기</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        :root {
+            --bg-primary: #0d0d0d;
+            --bg-secondary: #1a1a1a;
+            --bg-tertiary: #262626;
+            --bg-hover: #333333;
+            --text-primary: #ffffff;
+            --text-secondary: #b3b3b3;
+            --text-muted: #666666;
+            --border: #333333;
+        }
+        
+        body {
+            font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+        }
+        
+        .header {
+            background: var(--bg-secondary);
+            padding: 25px 30px;
+            border-bottom: 1px solid var(--border);
+        }
+        
+        .header h1 {
+            font-size: 20px;
+            font-weight: 300;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+        }
+        
+        .header-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header-bar p {
+            color: var(--text-muted);
+            font-size: 12px;
+            margin-top: 5px;
+        }
+        
+        .btn-danger-all {
+            padding: 10px 20px;
+            background: var(--text-primary);
+            color: var(--bg-primary);
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .btn-danger-all:hover { background: var(--text-secondary); }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 25px 30px;
+        }
+        
+        .tabs { display: flex; gap: 0; margin-bottom: -1px; }
+        .tab {
+            padding: 14px 35px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-bottom: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            font-size: 12px;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+        .tab:first-child { border-radius: 6px 0 0 0; }
+        .tab:last-child { border-radius: 0 6px 0 0; }
+        .tab:hover { background: var(--bg-hover); }
+        .tab.active { background: var(--bg-secondary); color: var(--text-primary); }
+        
+        .tab-content {
+            display: none;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 0 0 6px 6px;
+            padding: 25px;
+        }
+        .tab-content.active { display: block; }
+        
+        .local-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin-bottom: 25px;
+        }
+        
+        .info-card {
+            background: var(--bg-tertiary);
+            padding: 16px;
+            border-radius: 4px;
+            border-left: 3px solid var(--text-muted);
+        }
+        .info-card label {
+            font-size: 9px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            display: block;
+            margin-bottom: 6px;
+        }
+        .info-card .value {
+            font-size: 14px;
+            font-weight: 500;
+            font-family: 'Consolas', monospace;
+            word-break: break-all;
+        }
+        
+        .controls { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+        .btn {
+            padding: 11px 24px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 500;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+        }
+        .btn:hover { background: var(--bg-hover); color: var(--text-primary); }
+        .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .btn-primary { background: var(--text-primary); color: var(--bg-primary); border-color: var(--text-primary); }
+        
+        .status-bar {
+            padding: 14px 20px;
+            border-radius: 4px;
+            background: var(--bg-tertiary);
+            border-left: 3px solid #666;
+            margin-bottom: 20px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        
+        .stat-card {
+            background: var(--bg-tertiary);
+            padding: 16px;
+            border-radius: 4px;
+            text-align: center;
+            border-top: 2px solid #666;
+        }
+        .stat-card h3 {
+            font-size: 28px;
+            font-weight: 300;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+        .stat-card p {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .device-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 13px;
+        }
+        .device-table thead { background: var(--bg-tertiary); }
+        .device-table th {
+            padding: 12px;
+            text-align: left;
+            font-weight: 500;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 1px;
+        }
+        .device-table td {
+            padding: 12px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+        .device-table tbody tr {
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .device-table tbody tr:hover {
+            background: var(--bg-tertiary);
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 500;
+            background: #3a3a3a;
+            color: var(--text-muted);
+        }
+        .badge.online {
+            background: #1a4d2e;
+            color: #4ade80;
+        }
+        
+        .device-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .device-card {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        
+        .device-header {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px;
+            background: var(--bg-hover);
+            border-bottom: 1px solid var(--border);
+            font-size: 11px;
+            font-weight: 500;
+        }
+        
+        .device-body {
+            padding: 12px;
+        }
+        
+        .device-meta {
+            margin-bottom: 12px;
+            font-size: 12px;
+        }
+        
+        .meta-item {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+        }
+        
+        .meta-item label {
+            color: var(--text-muted);
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .meta-item .value {
+            font-family: monospace;
+            color: var(--text-primary);
+        }
+        
+        .control-section {
+            margin-bottom: 10px;
+        }
+        
+        .control-section h4 {
+            font-size: 10px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 6px;
+            font-weight: 400;
+        }
+        
+        .btn-group {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+        
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 10px;
+            background: var(--bg-hover);
+            border: 1px solid var(--border);
+        }
+        .btn-sm:hover { background: #444; }
+        
+        .game-btn.btn-sm {
+            flex: 1;
+            min-width: 45px;
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 4px;
+            background: #1a4d2e;
+            color: #4ade80;
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 1000;
+            font-size: 12px;
+        }
+        .toast.show { opacity: 1; }
+        .toast.error { background: #4d1a1a; color: #ff6b6b; }
+        
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.7);
+            z-index: 999;
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-overlay.show { display: flex; }
+        
+        .modal {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            width: 90%;
+            max-width: 400px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg-tertiary);
+        }
+        
+        .modal-header h3 {
+            font-size: 16px;
+            font-weight: 500;
+        }
+        
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0;
+            width: 30px;
+            height: 30px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .modal-close:hover { color: var(--text-primary); }
+        
+        .modal-body {
+            padding: 20px;
+        }
+        
+        .modal-section {
+            margin-bottom: 20px;
+        }
+        
+        .modal-section:last-child { margin-bottom: 0; }
+        
+        .modal-section h4 {
+            font-size: 12px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 12px;
+            font-weight: 500;
+        }
+        
+        .modal-speed {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        
+        .modal-speed input {
+            flex: 1;
+            padding: 8px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-size: 12px;
+        }
+        
+        .modal-btn {
+            padding: 8px 16px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-primary);
+            cursor: pointer;
+            font-size: 11px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .modal-btn:hover { background: var(--bg-hover); }
+        .modal-btn.kill { background: #3a1a1a; border-color: #5a3a3a; color: #ff8080; }
+        .modal-btn.kill:hover { background: #4a2a2a; }
+        
+        .modal-btn-group {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="header-bar">
+            <h1>Network Controller</h1>
+            <div>
+                <button class="btn-danger-all" id="allKillBtn">ALL KILL</button>
+                <p style="margin-top: 5px; color: #888; font-size: 11px;">모든 장치 차단</p>
+            </div>
+        </div>
+    </div>
+    
+    <div class="container">
+        <div class="tabs">
+            <button class="tab active" id="tabScanBtn">네트워크 스캔</button>
+            <button class="tab" id="tabApiBtn">API 장치</button>
+        </div>
+        
+        <div id="tab-scan" class="tab-content active">
+            <div class="local-info" id="localInfo"></div>
+            
+            <div class="controls">
+                <button class="btn btn-primary" id="scanBtn">스캔 시작</button>
+                <button class="btn" id="arpBtn">ARP 테이블</button>
+                <button class="btn" id="refreshInfoBtn">정보 새로고침</button>
+            </div>
+            
+            <div class="status-bar" id="scanStatus">네트워크 스캔을 시작하려면 "스캔 시작" 버튼을 클릭하세요</div>
+            
+            <div class="stats">
+                <div class="stat-card"><h3 id="totalDevices">0</h3><p>전체 장치</p></div>
+                <div class="stat-card"><h3 id="onlineDevices">0</h3><p>온라인</p></div>
+                <div class="stat-card"><h3 id="offlineDevices">0</h3><p>오프라인</p></div>
+                <div class="stat-card"><h3 id="scannedCount">0</h3><p>스캔됨</p></div>
+            </div>
+            
+            <table class="device-table" id="scanTable">
+                <thead>
+                    <tr>
+                        <th>상태</th>
+                        <th>IP 주소</th>
+                        <th>호스트명</th>
+                        <th>MAC 주소</th>
+                        <th>제조사</th>
+                        <th>OS 추정</th>
+                        <th>TTL</th>
+                    </tr>
+                </thead>
+                <tbody id="scanTableBody"></tbody>
+            </table>
+        </div>
+        
+        <div id="tab-api" class="tab-content">
+            <div class="controls">
+                <button class="btn btn-primary" id="refreshApiBtn">새로고침</button>
+                <button class="btn-danger-all" id="allKillApiBtn">ALL KILL</button>
+            </div>
+            
+            <div class="stats">
+                <div class="stat-card"><h3 id="apiTotal">0</h3><p>전체 장치</p></div>
+                <div class="stat-card"><h3 id="apiUnlimited">0</h3><p>무제한</p></div>
+                <div class="stat-card"><h3 id="apiBlocked">0</h3><p>차단됨</p></div>
+                <div class="stat-card"><h3 id="apiLimited">0</h3><p>제한됨</p></div>
+            </div>
+            
+            <div class="device-grid" id="deviceGrid"></div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+    
+    <div class="modal-overlay" id="deviceModal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>장치 제어</h3>
+                <button class="modal-close" id="modalClose">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-section">
+                    <h4>장치 정보</h4>
+                    <div id="modalDeviceInfo"></div>
+                </div>
+                <div class="modal-section">
+                    <h4>속도 제한</h4>
+                    <div class="modal-speed">
+                        <input type="number" id="modalSpeedInput" placeholder="속도 (KB/s)" min="1">
+                        <button class="modal-btn" id="modalSpeedBtn">적용</button>
+                    </div>
+                    <div class="modal-btn-group">
+                        <button class="modal-btn kill" id="modalKillBtn">차단</button>
+                        <button class="modal-btn" id="modalResumeBtn">복원</button>
+                    </div>
+                </div>
+                <div class="modal-section">
+                    <h4>지연 설정</h4>
+                    <div class="modal-btn-group">
+                        <button class="modal-btn" id="modalLagOut500">출력 +500ms</button>
+                        <button class="modal-btn" id="modalLagOut1000">출력 +1초</button>
+                        <button class="modal-btn" id="modalLagOutReset">출력 초기화</button>
+                    </div>
+                    <div class="modal-btn-group" style="margin-top:8px">
+                        <button class="modal-btn" id="modalLagIn500">입력 +500ms</button>
+                        <button class="modal-btn" id="modalLagIn1000">입력 +1초</button>
+                        <button class="modal-btn" id="modalLagInReset">입력 초기화</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        var currentTab = 'scan';
+        var scannedDevices = [];
+        var apiDevices = [];
+        var selectedDevice = null;
+
+        function $(id) { return document.getElementById(id); }
+        
+        function showToast(msg, type) {
+            var toast = $('toast');
+            toast.textContent = msg;
+            toast.className = 'toast ' + (type || 'success') + ' show';
+            setTimeout(function() { toast.classList.remove('show'); }, 3000);
+        }
+
+        function switchTab(tab) {
+            currentTab = tab;
+            var tabs = document.querySelectorAll('.tab');
+            for (var i = 0; i < tabs.length; i++) tabs[i].classList.remove('active');
+            var tabContents = document.querySelectorAll('.tab-content');
+            for (var i = 0; i < tabContents.length; i++) tabContents[i].classList.remove('active');
+            if (tab === 'scan') $('tabScanBtn').classList.add('active');
+            else $('tabApiBtn').classList.add('active');
+            $('tab-' + tab).classList.add('active');
+            if (tab === 'api' && apiDevices.length === 0) loadApiDevices();
+        }
+
+        function loadLocalInfo() {
+            fetch('/api/local-info').then(function(r) { return r.json(); }).then(function(data) {
+                $('localInfo').innerHTML = 
+                    '<div class="info-card"><label>호스트명</label><div class="value">' + (data.hostname || 'N/A') + '</div></div>' +
+                    '<div class="info-card"><label>내 IP</label><div class="value">' + (data.local_ip || 'N/A') + '</div></div>' +
+                    '<div class="info-card"><label>MAC 주소</label><div class="value">' + (data.mac_address || 'N/A') + '</div></div>' +
+                    '<div class="info-card"><label>게이트웨이</label><div class="value">' + (data.gateway || '자동 감지...') + '</div></div>' +
+                    '<div class="info-card"><label>서브넷</label><div class="value">' + (data.subnet || 'N/A') + '</div></div>' +
+                    '<div class="info-card"><label>OS</label><div class="value">' + (data.os || 'Windows') + '</div></div>';
+            });
+        }
+
+        function startScan() {
+            $('scanBtn').disabled = true;
+            $('scanBtn').textContent = '스캔 중...';
+            $('scanStatus').textContent = '네트워크 스캔 중...';
+            scannedDevices = [];
+            fetch('/api/scan/start').then(function() { pollScanStatus(); });
+        }
+
+        function pollScanStatus() {
+            fetch('/api/scan/status').then(function(r) { return r.json(); }).then(function(data) {
+                updateScanUI(data);
+                if (data.status === 'scanning') setTimeout(pollScanStatus, 500);
+                else { $('scanBtn').disabled = false; $('scanBtn').textContent = '스캔 시작'; }
+            });
+        }
+
+        function updateScanUI(data) {
+            scannedDevices = data.devices || [];
+            var online = 0, offline = 0;
+            for (var i = 0; i < scannedDevices.length; i++) {
+                if (scannedDevices[i].status === 'online') online++;
+                else offline++;
+            }
+            $('totalDevices').textContent = scannedDevices.length;
+            $('onlineDevices').textContent = online;
+            $('offlineDevices').textContent = offline;
+
+            if (data.status === 'scanning') $('scanStatus').textContent = '장치 ' + scannedDevices.length + '개 발견 (스캔 중...)';
+            else if (data.status === 'completed') $('scanStatus').textContent = '스캔 완료';
+            else $('scanStatus').textContent = '네트워크 스캔을 시작하려면 "스캔 시작" 버튼을 클릭하세요';
+
+            var tbody = $('scanTableBody');
+            if (scannedDevices.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#666">장치를 찾지 못했습니다</td></tr>';
+            } else {
+                var html = '';
+                for (var i = 0; i < scannedDevices.length; i++) {
+                    var d = scannedDevices[i];
+                    html += '<tr data-device-idx="' + i + '">' +
+                        '<td><span class="badge ' + (d.status === 'online' ? 'online' : '') + '">' + (d.status === 'online' ? '온라인' : '오프라인') + '</span></td>' +
+                        '<td style="font-family:monospace;font-weight:500">' + (d.ip || 'N/A') + '</td>' +
+                        '<td>' + (d.hostname || 'N/A') + '</td>' +
+                        '<td style="font-family:monospace;color:#888;font-size:11px">' + (d.mac || 'N/A') + '</td>' +
+                        '<td style="font-size:11px;color:#888">' + (d.vendor || '알 수 없음') + '</td>' +
+                        '<td><span style="padding:2px 8px;border-radius:2px;font-size:9px;background:#1a1a1a;border:1px solid #333">' + (d.os_estimate || '알 수 없음') + '</span></td>' +
+                        '<td>' + (d.ttl || '-') + '</td></tr>';
+                }
+                tbody.innerHTML = html;
+                
+                var rows = tbody.querySelectorAll('tr[data-device-idx]');
+                for (var i = 0; i < rows.length; i++) {
+                    (function(index) {
+                        rows[index].addEventListener('click', function() {
+                            openDeviceModal(index);
+                        });
+                    })(i);
+                }
+            }
+        }
+
+        function loadArpTable() {
+            $('scanBtn').disabled = true;
+            $('scanBtn').textContent = '로딩 중...';
+            $('scanStatus').textContent = 'ARP 테이블 로딩 중...';
+            fetch('/api/scan/arp').then(function(r) { return r.json(); }).then(function(devices) {
+                scannedDevices = devices;
+                var online = 0;
+                for (var i = 0; i < devices.length; i++) if (devices[i].status === 'online') online++;
+                $('totalDevices').textContent = devices.length;
+                $('onlineDevices').textContent = online;
+                $('offlineDevices').textContent = devices.length - online;
+                $('scanBtn').disabled = false;
+                $('scanBtn').textContent = '스캔 시작';
+                $('scanStatus').textContent = 'ARP 테이블 로드 완료 - ' + devices.length + '개 장치';
+                updateScanUI({ devices: devices, status: 'completed' });
+            });
+        }
+
+        function openDeviceModal(idx) {
+            var d = scannedDevices[idx];
+            if (!d) return;
+            selectedDevice = d;
+            $('modalDeviceInfo').innerHTML = 
+                '<div style="background:#262626;padding:10px;border-radius:4px;font-size:12px">' +
+                '<div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="color:#888">IP:</span><span style="font-family:monospace">' + (d.ip || '-') + '</span></div>' +
+                '<div style="display:flex;justify-content:space-between;margin-bottom:5px"><span style="color:#888">MAC:</span><span style="font-family:monospace">' + (d.mac || d.MAC || '-') + '</span></div>' +
+                '<div style="display:flex;justify-content:space-between"><span style="color:#888">제조사:</span><span>' + (d.vendor || '알 수 없음') + '</span></div></div>';
+            $('deviceModal').classList.add('show');
+        }
+
+        function closeModal() {
+            $('deviceModal').classList.remove('show');
+            selectedDevice = null;
+        }
+
+        function controlDevice(mac, action, value) {
+            fetch('/api/control/' + action + '/' + mac + '/' + value)
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    if (data.success) showToast(mac + ': ' + action + ' - ' + value);
+                    else showToast('오류: ' + data.error, 'error');
+                })
+                .catch(function() { showToast('요청 실패', 'error'); });
+        }
+
+        function loadApiDevices() {
+            fetch('/api/devices').then(function(r) { return r.json(); }).then(function(data) {
+                apiDevices = data.network_device || [];
+                var total = apiDevices.length, unlimited = 0, blocked = 0, limited = 0;
+                for (var i = 0; i < apiDevices.length; i++) {
+                    var s = apiDevices[i].SpeedLimit;
+                    if (s === -1) unlimited++;
+                    else if (s === 0) blocked++;
+                    else limited++;
+                }
+                $('apiTotal').textContent = total;
+                $('apiUnlimited').textContent = unlimited;
+                $('apiBlocked').textContent = blocked;
+                $('apiLimited').textContent = limited;
+                
+                var html = '';
+                for (var i = 0; i < apiDevices.length; i++) {
+                    var d = apiDevices[i];
+                    var mac = d.MAC;
+                    var speedText = d.SpeedLimit === -1 ? '무제한' : d.SpeedLimit + ' KB/s';
+                    html += '<div class="device-card">' +
+                        '<div class="device-header"><span class="mac">' + mac + '</span><span class="ip">' + (d.IP || 'N/A') + '</span></div>' +
+                        '<div class="device-body">' +
+                        '<div class="device-meta">' +
+                        '<div class="meta-item"><label>호스트명</label><div class="value">' + (d.HostName || 'N/A') + '</div></div>' +
+                        '<div class="meta-item"><label>속도제한</label><div class="value">' + speedText + '</div></div>' +
+                        '<div class="meta-item"><label>지연(출력)</label><div class="value">' + d.LagSwitchOutGoingMiliSecond + 'ms</div></div>' +
+                        '<div class="meta-item"><label>지연(입력)</label><div class="value">' + d.LagSwitchIncomingMiliSecond + 'ms</div></div>' +
+                        '</div>' +
+                        '<div class="control-section"><h4>인터넷 제어</h4><div class="btn-group">' +
+                        '<button class="btn btn-sm" onclick="controlDevice(\'' + mac.replace(/'/g, "\\'") + '\',\'speed\',\'0\')">차단</button>' +
+                        '<button class="btn btn-sm" onclick="controlDevice(\'' + mac.replace(/'/g, "\\'") + '\',\'speed\',\'unlimit\')">복원</button></div></div>' +
+                        '<div class="control-section"><h4>지연 스위치</h4><div class="btn-group">' +
+                        '<button class="btn btn-sm" onclick="controlDevice(\'' + mac.replace(/'/g, "\\'") + '\',\'lagout\',\'1000\')">출력 +1초</button>' +
+                        '<button class="btn btn-sm" onclick="controlDevice(\'' + mac.replace(/'/g, "\\'") + '\',\'lagout\',\'0\')">초기화</button>' +
+                        '<button class="btn btn-sm" onclick="controlDevice(\'' + mac.replace(/'/g, "\\'") + '\',\'lagin\',\'1000\')">입력 +1초</button></div></div>' +
+                        '<div class="control-section"><h4>게임 잠금</h4><div class="game-locks">' +
+                        '<button class="btn btn-sm game-btn" onclick="controlDevice(\'' + mac.replace(/'/g, "\\'") + '\',\'ps4lock\',\'on\')">PS4</button>' +
+                        '<button class="btn btn-sm game-btn" onclick="controlDevice(\'' + mac.replace(/'/g, "\\'") + '\',\'ps5lock\',\'on\')">PS5</button>' +
+                        '<button class="btn btn-sm game-btn" onclick="controlDevice(\'' + mac.replace(/'/g, "\\'") + '\',\'xboxlock\',\'on\')">Xbox</button>' +
+                        '</div></div></div></div>';
+                }
+                $('deviceGrid').innerHTML = html || '<div style="text-align:center;padding:60px;color:#666">장치가 없습니다</div>';
+            });
+        }
+
+        function killAllDevices() {
+            if (scannedDevices.length === 0) { showToast('먼저 장치를 스캔하세요', 'error'); return; }
+            if (!confirm(scannedDevices.length + '개의 장치를 모두 차단하시겠습니까?')) return;
+            for (var i = 0; i < scannedDevices.length; i++) {
+                var mac = scannedDevices[i].mac;
+                if (mac) controlDevice(mac, 'speed', '0');
+            }
+            showToast(scannedDevices.length + '개 장치 차단됨');
+        }
+
+        function killAllApiDevices() {
+            if (apiDevices.length === 0) { showToast('장치가 없습니다', 'error'); return; }
+            if (!confirm(apiDevices.length + '개의 장치를 모두 차단하시겠습니까?')) return;
+            for (var i = 0; i < apiDevices.length; i++) {
+                controlDevice(apiDevices[i].MAC, 'speed', '0');
+            }
+            showToast(apiDevices.length + '개 장치 차단됨');
+        }
+
+        // Event listeners
+        $('tabScanBtn').onclick = function() { switchTab('scan'); };
+        $('tabApiBtn').onclick = function() { switchTab('api'); };
+        $('scanBtn').onclick = startScan;
+        $('arpBtn').onclick = loadArpTable;
+        $('refreshInfoBtn').onclick = loadLocalInfo;
+        $('refreshApiBtn').onclick = loadApiDevices;
+        $('allKillBtn').onclick = killAllDevices;
+        $('allKillApiBtn').onclick = killAllApiDevices;
+        $('modalClose').onclick = closeModal;
+        $('modalKillBtn').onclick = function() { if (selectedDevice) controlDevice(selectedDevice.mac || selectedDevice.MAC, 'speed', '0'); };
+        $('modalResumeBtn').onclick = function() { if (selectedDevice) controlDevice(selectedDevice.mac || selectedDevice.MAC, 'speed', 'unlimit'); };
+        $('modalSpeedBtn').onclick = function() {
+            var val = $('modalSpeedInput').value;
+            if (selectedDevice && val > 0) controlDevice(selectedDevice.mac || selectedDevice.MAC, 'speed', val);
+        };
+        $('modalLagOut500').onclick = function() { if (selectedDevice) controlDevice(selectedDevice.mac || selectedDevice.MAC, 'lagout', '500'); };
+        $('modalLagOut1000').onclick = function() { if (selectedDevice) controlDevice(selectedDevice.mac || selectedDevice.MAC, 'lagout', '1000'); };
+        $('modalLagOutReset').onclick = function() { if (selectedDevice) controlDevice(selectedDevice.mac || selectedDevice.MAC, 'lagout', '0'); };
+        $('modalLagIn500').onclick = function() { if (selectedDevice) controlDevice(selectedDevice.mac || selectedDevice.MAC, 'lagin', '500'); };
+        $('modalLagIn1000').onclick = function() { if (selectedDevice) controlDevice(selectedDevice.mac || selectedDevice.MAC, 'lagin', '1000'); };
+        $('modalLagInReset').onclick = function() { if (selectedDevice) controlDevice(selectedDevice.mac || selectedDevice.MAC, 'lagin', '0'); };
+        document.onkeydown = function(e) { if (e.key === 'Escape') closeModal(); };
+        
+        loadLocalInfo();
+    </script>
+</body>
+</html>
