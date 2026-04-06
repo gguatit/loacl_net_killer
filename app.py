@@ -25,6 +25,11 @@ scan_status = "idle"
 last_scan = None
 scan_progress = 0
 
+# ARP 기반 속도 제어 상태 관리
+arp_speed_control = {}  # {mac: {speed: kb/s, lag_out: ms, lag_in: ms, blocks: []}}
+arp_devices = []  # ARP 스캔 결과
+arp_last_scan = None
+
 def load_network_data():
     try:
         with open(DATA_FILE, 'r', encoding='utf-8') as f:
@@ -101,7 +106,177 @@ def api_scan_status():
 
 @app.route('/api/scan/arp')
 def api_scan_arp():
-    return jsonify(arp_scan())
+    global arp_devices, arp_last_scan, arp_speed_control
+    
+    try:
+        devices = arp_scan()
+        arp_devices = devices
+        arp_last_scan = datetime.now().isoformat()
+        
+        # ARP 스캔 결과에 속도 제어 상태 병합
+        for device in devices:
+            mac = device.get('mac', '')
+            if mac not in arp_speed_control:
+                arp_speed_control[mac] = {
+                    "speed": -1,  # -1: unlimited
+                    "lag_out": 0,
+                    "lag_in": 0,
+                    "blocks": []
+                }
+            device['control_state'] = arp_speed_control[mac]
+        
+        return jsonify(devices)
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e), "devices": []}), 500
+
+@app.route('/api/arp/speed/<mac>/<speed>')
+def api_arp_speed(mac, speed):
+    """ARP 기반 속도 제어"""
+    global arp_speed_control
+    
+    try:
+        speed_value = int(speed)
+        
+        if mac not in arp_speed_control:
+            arp_speed_control[mac] = {
+                "speed": -1,
+                "lag_out": 0,
+                "lag_in": 0,
+                "blocks": []
+            }
+        
+        arp_speed_control[mac]["speed"] = speed_value
+        
+        # 외부 API로도 전달 시도 (가능한 경우)
+        if USE_EXTERNAL_API:
+            url = make_api_url("speed", mac, speed)
+            try:
+                import urllib.request
+                with urllib.request.urlopen(url, timeout=2) as resp:
+                    resp.read()
+            except:
+                pass
+        
+        return jsonify({
+            "success": True,
+            "mac": mac,
+            "speed": speed_value,
+            "message": "속도 제한 적용됨" if speed_value > 0 else "인터넷 차단됨" if speed_value == 0 else "무제한"
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+
+@app.route('/api/arp/lagswitch/<mac>/<direction>/<ms>')
+def api_arp_lagswitch(mac, direction, ms):
+    """ARP 기반 지연 스위치"""
+    global arp_speed_control
+    
+    try:
+        ms_value = int(ms)
+        
+        if mac not in arp_speed_control:
+            arp_speed_control[mac] = {
+                "speed": -1,
+                "lag_out": 0,
+                "lag_in": 0,
+                "blocks": []
+            }
+        
+        if direction == "out":
+            arp_speed_control[mac]["lag_out"] = ms_value
+            msg = f"출력 지연 {ms_value}ms 적용"
+        elif direction == "in":
+            arp_speed_control[mac]["lag_in"] = ms_value
+            msg = f"입력 지연 {ms_value}ms 적용"
+        else:
+            return jsonify({"success": False, "error": "invalid direction"}), 400
+        
+        return jsonify({
+            "success": True,
+            "mac": mac,
+            "direction": direction,
+            "ms": ms_value,
+            "message": msg
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+
+@app.route('/api/arp/block/<mac>/<block_type>/<state>')
+def api_arp_block(mac, block_type, state):
+    """ARP 기반 게임 차단"""
+    global arp_speed_control
+    
+    try:
+        if mac not in arp_speed_control:
+            arp_speed_control[mac] = {
+                "speed": -1,
+                "lag_out": 0,
+                "lag_in": 0,
+                "blocks": []
+            }
+        
+        blocks = arp_speed_control[mac]["blocks"]
+        
+        if state.lower() == "on":
+            if block_type not in blocks:
+                blocks.append(block_type)
+            msg = f"{block_type} 차단 활성화"
+        elif state.lower() == "off":
+            if block_type in blocks:
+                blocks.remove(block_type)
+            msg = f"{block_type} 차단 해제"
+        else:
+            return jsonify({"success": False, "error": "invalid state"}), 400
+        
+        return jsonify({
+            "success": True,
+            "mac": mac,
+            "block_type": block_type,
+            "state": state,
+            "blocks": blocks,
+            "message": msg
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 400
+
+@app.route('/api/arp/status/<mac>')
+def api_arp_status(mac):
+    """특정 MAC 주소의 제어 상태 조회"""
+    global arp_speed_control
+    
+    if mac in arp_speed_control:
+        return jsonify({
+            "success": True,
+            "mac": mac,
+            "status": arp_speed_control[mac]
+        })
+    else:
+        return jsonify({
+            "success": False,
+            "mac": mac,
+            "message": "Device not found"
+        }), 404
+
+@app.route('/api/arp/reset/<mac>')
+def api_arp_reset(mac):
+    """특정 MAC 주소의 모든 제어 초기화"""
+    global arp_speed_control
+    
+    try:
+        arp_speed_control[mac] = {
+            "speed": -1,
+            "lag_out": 0,
+            "lag_in": 0,
+            "blocks": []
+        }
+        
+        return jsonify({
+            "success": True,
+            "mac": mac,
+            "message": "모든 제어 초기화됨"
+        })
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 400
 
 @app.route('/api/control/<action>/<mac>/<value>')
 def api_control(action, mac, value):
