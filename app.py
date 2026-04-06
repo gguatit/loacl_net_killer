@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, Response
+from flask import Flask, render_template, jsonify, Response, request
 import threading
 from datetime import datetime
 
@@ -16,23 +16,40 @@ from scanner import (
 
 app = Flask(__name__)
 
-def scan_worker():
+def scan_worker(mode="fast"):
+    state.scan_mode = mode
     state.scan_status = "scanning"
+    state.scan_cancel_requested = False
+    state.scan_cancel_event.clear()
     state.scan_progress = 0
+    state.scan_processed_hosts = 0
+    state.scan_total_hosts = 0
     state.scan_results = []
     
-    def on_device_found(device):
-        state.scan_results.append(device)
-        state.scan_progress = len(state.scan_results)
+    def on_scan_update(device=None, processed=0, total=0):
+        if device:
+            state.scan_results.append(device)
+        state.scan_processed_hosts = processed or state.scan_processed_hosts
+        state.scan_total_hosts = total or state.scan_total_hosts
+        if state.scan_total_hosts > 0:
+            pct = int((state.scan_processed_hosts / state.scan_total_hosts) * 100)
+            state.scan_progress = max(0, min(99 if state.scan_status == "scanning" else 100, pct))
     
     try:
-        result = scan_network(callback=on_device_found)
+        result = scan_network(mode=mode, callback=on_scan_update, cancel_event=state.scan_cancel_event)
         state.scan_results = result.get("devices", state.scan_results)
+        # ARP+Ping 병합 결과가 ping 대상 수보다 커질 수 있으므로 상태 지표를 보정한다.
+        state.scan_total_hosts = max(state.scan_total_hosts, len(state.scan_results))
+        if result.get("cancelled"):
+            state.scan_status = "cancelled"
+            state.last_scan = datetime.now().isoformat()
+            return
     except Exception as e:
         print(f"Scan error: {e}")
     
     state.last_scan = datetime.now().isoformat()
     state.scan_status = "completed"
+    state.scan_processed_hosts = state.scan_total_hosts or state.scan_processed_hosts
     state.scan_progress = 100
 
 @app.route('/')
@@ -50,14 +67,39 @@ def api_local_info():
 
 @app.route('/api/scan/start')
 def api_scan_start():
+    mode = (request.args.get("mode", "fast") or "fast").lower()
+    if mode not in ("fast", "deep"):
+        mode = "fast"
+
     if state.scan_status == "scanning":
-        return jsonify({"status": "scanning", "devices": state.scan_results, "progress": state.scan_progress})
+        return jsonify({
+            "status": "scanning",
+            "devices": state.scan_results,
+            "progress": state.scan_progress,
+            "mode": state.scan_mode,
+            "cancel_requested": state.scan_cancel_requested
+        })
     
-    thread = threading.Thread(target=scan_worker)
+    thread = threading.Thread(target=scan_worker, args=(mode,))
     thread.daemon = True
     thread.start()
     
-    return jsonify({"status": "started", "message": "Network scan started"})
+    return jsonify({"status": "started", "message": "Network scan started", "mode": mode})
+
+
+@app.route('/api/scan/cancel')
+def api_scan_cancel():
+    if state.scan_status != "scanning":
+        return jsonify({
+            "success": False,
+            "status": state.scan_status,
+            "message": "현재 진행 중인 스캔이 없습니다"
+        }), 409
+
+    state.scan_cancel_requested = True
+    state.scan_status = "canceling"
+    state.scan_cancel_event.set()
+    return jsonify({"success": True, "status": "canceling", "message": "스캔 취소 요청됨"})
 
 @app.route('/api/scan/status')
 def api_scan_status():
@@ -68,7 +110,12 @@ def api_scan_status():
         "devices": state.scan_results,
         "local_info": local_info,
         "last_scan": state.last_scan,
-        "progress": state.scan_progress
+        "progress": state.scan_progress,
+        "mode": state.scan_mode,
+        "processed_hosts": state.scan_processed_hosts,
+        "total_hosts": state.scan_total_hosts,
+        "found_hosts": len(state.scan_results),
+        "cancel_requested": state.scan_cancel_requested
     })
 
 @app.route('/api/scan/arp')

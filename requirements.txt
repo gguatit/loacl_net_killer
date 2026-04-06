@@ -1,3 +1,4 @@
 Flask==3.1.3
 zeroconf==0.148.0
+scapy==2.6.1
 

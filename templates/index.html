@@ -731,7 +731,12 @@
                 <button class="btn btn-primary" id="scanBtn" onclick="startScan()">
                     <span class="spinner"></span> 스캔 시작
                 </button>
-                <button class="btn" onclick="loadArpTable()">ARP 테이블</button>
+                <button class="btn" id="cancelScanBtn" onclick="cancelScan()" disabled>스캔 취소</button>
+                <select id="scanMode" class="btn" style="padding-right: 28px;">
+                    <option value="fast" selected>빠른 스캔</option>
+                    <option value="deep">정밀 스캔</option>
+                </select>
+                <button class="btn" id="arpBtn" onclick="loadArpTable()">ARP 테이블</button>
                 <button class="btn" onclick="loadLocalInfo()">정보 새로고침</button>
             </div>
             
@@ -1011,21 +1016,43 @@
 
         function startScan() {
             const btn = document.getElementById('scanBtn');
+            const arpBtn = document.getElementById('arpBtn');
+            const cancelBtn = document.getElementById('cancelScanBtn');
             const status = document.getElementById('scanStatus');
+            const mode = document.getElementById('scanMode').value || 'fast';
             
             btn.disabled = true;
+            if (arpBtn) arpBtn.disabled = true;
+            if (cancelBtn) cancelBtn.disabled = false;
             btn.innerHTML = '<span class="spinner"></span> 스캔 중...';
             status.className = 'status-bar scanning';
-            status.innerHTML = '<span><span class="spinner"></span> 네트워크 스캔 중...</span>';
+            status.innerHTML = `<span><span class="spinner"></span> 네트워크 스캔 중... (모드: ${mode === 'deep' ? '정밀' : '빠른'})</span>`;
             document.getElementById('progress').style.width = '0%';
             totalScanned = 0;
             scannedDevices = [];
             
-            fetch('/api/scan/start')
+            fetch(`/api/scan/start?mode=${encodeURIComponent(mode)}`)
                 .then(r => r.json())
                 .then(data => {
                     pollScanStatus();
                 });
+        }
+
+        function cancelScan() {
+            const cancelBtn = document.getElementById('cancelScanBtn');
+            const status = document.getElementById('scanStatus');
+            if (cancelBtn) cancelBtn.disabled = true;
+            status.className = 'status-bar scanning';
+            status.innerHTML = '<span><span class="spinner"></span> 스캔 취소 요청 중...</span>';
+
+            fetch('/api/scan/cancel')
+                .then(r => r.json())
+                .then(data => {
+                    if (!data.success) {
+                        showToast(data.message || '취소 요청 실패', 'error');
+                    }
+                })
+                .catch(() => showToast('취소 요청 실패', 'error'));
         }
 
         function pollScanStatus() {
@@ -1038,7 +1065,11 @@
                         pollInterval = setTimeout(pollScanStatus, 300);
                     } else {
                         const btn = document.getElementById('scanBtn');
+                        const arpBtn = document.getElementById('arpBtn');
+                        const cancelBtn = document.getElementById('cancelScanBtn');
                         btn.disabled = false;
+                        if (arpBtn) arpBtn.disabled = false;
+                        if (cancelBtn) cancelBtn.disabled = true;
                         btn.innerHTML = '스캔 시작';
                         const status = document.getElementById('scanStatus');
                         status.className = 'status-bar';
@@ -1056,13 +1087,26 @@
             const online = devices.filter(d => d.status === 'online').length;
             
             if (data.status === 'scanning') {
-                totalScanned += 5;
                 status.className = 'status-bar scanning';
-                status.innerHTML = `<span><span class="spinner"></span> 장치 ${devices.length}개 발견 (스캔 중...)</span>`;
-                progress.style.width = `${Math.min(totalScanned, 95)}%`;
+                const modeText = data.mode === 'deep' ? '정밀' : '빠른';
+                const processed = data.processed_hosts || 0;
+                const total = data.total_hosts || 0;
+                const found = data.found_hosts || devices.length;
+                status.innerHTML = `<span><span class="spinner"></span> 장치 ${found}개 발견 (스캔 중..., ${modeText}, ${processed}/${total})</span>`;
+                progress.style.width = `${Math.min(data.progress || 0, 99)}%`;
+            } else if (data.status === 'canceling') {
+                status.className = 'status-bar scanning';
+                status.innerHTML = `<span><span class="spinner"></span> 스캔 취소 처리 중...</span>`;
+                progress.style.width = `${Math.min(data.progress || 0, 99)}%`;
+            } else if (data.status === 'cancelled') {
+                status.className = 'status-bar';
+                const found = data.found_hosts || devices.length;
+                status.innerHTML = `<span>스캔 취소됨 (현재까지 ${found}개)</span>`;
             } else if (data.status === 'completed') {
                 status.className = 'status-bar';
-                status.innerHTML = `<span>스캔 완료</span>`;
+                const modeText = data.mode === 'deep' ? '정밀' : '빠른';
+                const found = data.found_hosts || devices.length;
+                status.innerHTML = `<span>스캔 완료 (${modeText}, 총 ${found}개)</span>`;
                 progress.style.width = '100%';
                 if (data.last_scan) {
                     scanTime.textContent = `마지막 스캔: ${new Date(data.last_scan).toLocaleTimeString()}`;
@@ -1075,7 +1119,9 @@
             document.getElementById('totalDevices').textContent = devices.length;
             document.getElementById('onlineDevices').textContent = online;
             document.getElementById('offlineDevices').textContent = devices.length - online;
-            document.getElementById('scannedCount').textContent = 254;
+            const processed = data.processed_hosts || 0;
+            const total = data.total_hosts || 0;
+            document.getElementById('scannedCount').textContent = total > 0 ? `${processed}/${total}` : devices.length;
             
             const tbody = document.getElementById('scanTableBody');
             if (devices.length === 0 && data.status !== 'scanning') {
@@ -1104,6 +1150,12 @@
         }
 
         function loadArpTable() {
+            const scanBtn = document.getElementById('scanBtn');
+            if (scanBtn && scanBtn.disabled) {
+                showToast('스캔 중에는 ARP 테이블 로드를 잠시 기다려주세요', 'error');
+                return;
+            }
+
             const status = document.getElementById('scanStatus');
             const btn = document.getElementById('scanBtn');
             

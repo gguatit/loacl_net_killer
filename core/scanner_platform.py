@@ -361,11 +361,13 @@ def ping_host_fast(ip):
     try:
         ttl = 0
         if IS_WINDOWS:
-            cmd = ['ping', '-n', '1', '-w', '1000', ip]
-            timeout_sec = 4
+            # 350ms ping timeout to keep bulk scan responsive.
+            cmd = ['ping', '-n', '1', '-w', '350', ip]
+            timeout_sec = 1.2
         else:
+            # Linux/macOS: -W 1 is 1 second, but subprocess timeout is kept short.
             cmd = ['ping', '-c', '1', '-W', '1', ip]
-            timeout_sec = 4
+            timeout_sec = 1.5
 
         result = subprocess.run(cmd, capture_output=True, timeout=timeout_sec, encoding='utf-8', errors='replace')
         out = result.stdout or ''
