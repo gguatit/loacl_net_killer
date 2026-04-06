@@ -13,6 +13,7 @@ from scanner import (
     arp_scan, 
     scan_network,
     resolve_auto_network,
+    get_auto_network_candidates,
 )
 
 app = Flask(__name__)
@@ -138,6 +139,17 @@ def api_scan_status():
         "total_hosts": state.scan_total_hosts,
         "found_hosts": len(state.scan_results),
         "cancel_requested": state.scan_cancel_requested
+    })
+
+
+@app.route('/api/scan/network-candidates')
+def api_scan_network_candidates():
+    local_info = get_local_info()
+    candidates = get_auto_network_candidates(local_info)
+    return jsonify({
+        "local_info": local_info,
+        "candidates": candidates,
+        "selected": candidates[0] if candidates else "",
     })
 
 @app.route('/api/scan/arp')

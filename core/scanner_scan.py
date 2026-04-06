@@ -11,6 +11,7 @@ from core.scanner_platform import (
     IS_LINUX,
     IS_WINDOWS,
     estimate_os,
+    get_windows_route_network_candidates,
     get_hostname_from_ip,
     get_local_info,
     get_mac_from_arp,
@@ -30,6 +31,19 @@ PING_WORKERS = int(os.getenv("PING_WORKERS", "128"))
 ARP_VERIFY_ALIVE = os.getenv("ARP_VERIFY_ALIVE", "false").lower() in ("1", "true", "yes", "on")
 USE_SCAPY_ARP = os.getenv("USE_SCAPY_ARP", "true").lower() in ("1", "true", "yes", "on")
 SCAN_NETWORK_CIDR = os.getenv("SCAN_NETWORK_CIDR", "").strip()
+
+
+def _is_lan_candidate_network(net):
+    try:
+        addr = net.network_address
+    except Exception:
+        return False
+    if not net.is_private:
+        return False
+    if addr.is_loopback or addr.is_link_local or addr.is_multicast:
+        return False
+    first = int(str(addr).split('.')[0])
+    return first in (10, 11, 172, 192)
 
 
 def _sort_key_ip(value):
@@ -136,14 +150,121 @@ def _arp_candidate_networks(max_candidates=3):
     return out
 
 
+def _arp_seen_ips(max_items=2048):
+    ips = []
+    try:
+        result = subprocess.run(
+            ['arp', '-a'],
+            capture_output=True,
+            timeout=3,
+            encoding='utf-8',
+            errors='replace'
+        )
+        for line in (result.stdout or '').splitlines():
+            m = re.search(r"(\d+\.\d+\.\d+\.\d+)", line)
+            if not m:
+                continue
+            try:
+                ip_obj = ipaddress.ip_address(m.group(1))
+            except Exception:
+                continue
+            if not ip_obj.is_private:
+                continue
+            ips.append(ip_obj)
+            if len(ips) >= max_items:
+                break
+    except Exception:
+        pass
+    return ips
+
+
+def _rank_candidate_networks(candidates, local_info):
+    unique = []
+    seen = set()
+    for net in candidates:
+        key = str(net)
+        if key in seen:
+            continue
+        if not _is_lan_candidate_network(net):
+            continue
+        seen.add(key)
+        unique.append(net)
+
+    local_ip_raw = (local_info or {}).get('local_ip', '')
+    gateway_raw = (local_info or {}).get('gateway', '')
+
+    try:
+        local_ip = ipaddress.ip_address(local_ip_raw) if local_ip_raw else None
+    except Exception:
+        local_ip = None
+
+    try:
+        gateway = ipaddress.ip_address(gateway_raw) if gateway_raw else None
+    except Exception:
+        gateway = None
+
+    arp_ips = _arp_seen_ips()
+    ranked = []
+    for net in unique:
+        score = 0
+        if local_ip and local_ip in net:
+            score += 100
+        if gateway and gateway in net:
+            score += 60
+
+        arp_hits = 0
+        for ip_obj in arp_ips:
+            if ip_obj in net:
+                arp_hits += 1
+        score += min(arp_hits, 20) * 5
+
+        # In enterprise networks, 10.x/11.x often spans broader than /24.
+        if local_ip_raw.startswith('10.') or local_ip_raw.startswith('11.'):
+            if net.prefixlen <= 16 and (local_ip and local_ip in net):
+                score += 35
+
+        # Slightly prefer narrower ranges when scores tie.
+        score += max(0, 32 - net.prefixlen)
+        ranked.append((score, net))
+
+    ranked.sort(key=lambda x: x[0], reverse=True)
+    return [net for _, net in ranked]
+
+
 def _auto_candidate_networks(local_info):
     candidates = []
     seen = set()
 
+    if IS_WINDOWS:
+        for cidr in get_windows_route_network_candidates(max_candidates=4):
+            try:
+                net = ipaddress.ip_network(cidr, strict=False)
+            except Exception:
+                continue
+            key = str(net)
+            if key in seen:
+                continue
+            candidates.append(net)
+            seen.add(key)
+
     base = _network_from_local_info(local_info)
     if base is not None:
-        candidates.append(base)
-        seen.add(str(base))
+        bk = str(base)
+        if bk not in seen:
+            candidates.append(base)
+            seen.add(bk)
+
+    local_ip = (local_info or {}).get('local_ip', '')
+    # Backward-compatible fallback for enterprise 10.x/11.x where /24 misses hosts.
+    if local_ip.startswith('10.') or local_ip.startswith('11.'):
+        try:
+            wide = ipaddress.ip_network(f"{local_ip}/16", strict=False)
+            wk = str(wide)
+            if wk not in seen:
+                candidates.append(wide)
+                seen.add(wk)
+        except Exception:
+            pass
 
     for net in _arp_candidate_networks(max_candidates=4):
         k = str(net)
@@ -152,7 +273,7 @@ def _auto_candidate_networks(local_info):
         candidates.append(net)
         seen.add(k)
 
-    return candidates
+    return _rank_candidate_networks(candidates, local_info)
 
 
 def resolve_auto_network(local_info=None):
@@ -161,6 +282,11 @@ def resolve_auto_network(local_info=None):
     if not candidates:
         return ""
     return str(candidates[0])
+
+
+def get_auto_network_candidates(local_info=None):
+    info = local_info or get_local_info()
+    return [str(n) for n in _auto_candidate_networks(info)]
 
 
 def scapy_arp_scan(network):

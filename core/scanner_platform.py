@@ -397,6 +397,68 @@ def _get_windows_default_route_info():
     return None
 
 
+def get_windows_route_network_candidates(max_candidates=5):
+    """Return likely private IPv4 network CIDRs from Windows route table."""
+    if not IS_WINDOWS:
+        return []
+
+    scored = []
+    seen = set()
+    for enc in ["utf-8", "cp949", "euc-kr", "latin-1"]:
+        try:
+            result = subprocess.run(['route', 'print', '-4'], capture_output=True, encoding=enc, errors='replace', timeout=2)
+            for line in result.stdout.splitlines():
+                parts = line.split()
+                if len(parts) < 5:
+                    continue
+
+                dest, mask, _gateway, interface_ip = parts[0], parts[1], parts[2], parts[3]
+                try:
+                    metric = int(parts[4])
+                except Exception:
+                    metric = 9999
+
+                if dest == '0.0.0.0' and mask == '0.0.0.0':
+                    continue
+                if not re.match(r"^\d+\.\d+\.\d+\.\d+$", dest):
+                    continue
+                if not re.match(r"^\d+\.\d+\.\d+\.\d+$", mask):
+                    continue
+                if not re.match(r"^\d+\.\d+\.\d+\.\d+$", interface_ip):
+                    continue
+
+                try:
+                    net = ipaddress.ip_network(f"{dest}/{mask}", strict=False)
+                    iface = ipaddress.ip_address(interface_ip)
+                except Exception:
+                    continue
+
+                if not net.is_private:
+                    continue
+                if net.prefixlen >= 31:
+                    continue
+                if net.prefixlen < 8:
+                    continue
+                if iface.is_loopback or iface.is_link_local:
+                    continue
+
+                cidr = str(net)
+                if cidr in seen:
+                    continue
+                seen.add(cidr)
+
+                # Lower score is better: prefer lower metric and practical subnet sizes.
+                subnet_penalty = abs(net.prefixlen - 24)
+                score = (metric * 10) + subnet_penalty
+                scored.append((score, cidr))
+            break
+        except Exception:
+            continue
+
+    scored.sort(key=lambda x: x[0])
+    return [cidr for _, cidr in scored[:max_candidates]]
+
+
 def get_local_info_macos():
     hostname = socket.gethostname()
     local_ip = socket.gethostbyname(hostname)
