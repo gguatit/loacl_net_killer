@@ -22,6 +22,29 @@ python app.py
 
 브라우저에서 접속: `http://localhost:5000`
 
+## Linux One-Click Run
+
+리눅스/NetHunter에서 `venv 생성 + pip 설치 + 서버 실행`을 한 번에 수행합니다.
+
+```bash
+chmod +x start_all_linux.sh
+./start_all_linux.sh
+```
+
+제어 API까지 같이 실행하려면:
+
+```bash
+export CONTROL_API_COMMAND="여기에_제어API_실행명령"
+./start_all_linux.sh
+```
+
+GUI만 실행하려면:
+
+```bash
+chmod +x start_gui_only_linux.sh
+./start_gui_only_linux.sh
+```
+
 ## Features
 
 ### Network Scan Tab

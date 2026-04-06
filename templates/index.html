@@ -876,6 +876,18 @@
                                 <button class="btn btn-sm game-btn" onclick="toggleLock('{{ device.MAC }}', 'innerpeace')">InnerPeace</button>
                             </div>
                         </div>
+
+                        <div class="control-section">
+                            <h4>서비스 차단</h4>
+                            <div class="game-locks">
+                                <button class="btn btn-sm game-btn" onclick="toggleServiceBlock('{{ device.MAC }}', 'youtube')">YouTube</button>
+                                <button class="btn btn-sm game-btn" onclick="toggleServiceBlock('{{ device.MAC }}', 'naver')">Naver</button>
+                                <button class="btn btn-sm game-btn" onclick="toggleServiceBlock('{{ device.MAC }}', 'padlet')">Padlet</button>
+                                <button class="btn btn-sm game-btn" onclick="toggleServiceBlock('{{ device.MAC }}', 'discord')">Discord</button>
+                                <button class="btn btn-sm game-btn" onclick="toggleServiceBlock('{{ device.MAC }}', 'instagram')">Instagram</button>
+                                <button class="btn btn-sm game-btn" onclick="toggleServiceBlock('{{ device.MAC }}', 'facebook')">Facebook</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 {% endfor %}
@@ -926,12 +938,29 @@
                         <button class="modal-btn" onclick="setModalLag('lagin', 0)">입력 초기화</button>
                     </div>
                 </div>
+
+                <div class="modal-section">
+                    <h4>서비스 차단</h4>
+                    <div class="modal-btn-group">
+                        <button class="modal-btn" onclick="setModalService('youtube')">YouTube 토글</button>
+                        <button class="modal-btn" onclick="setModalService('naver')">Naver 토글</button>
+                        <button class="modal-btn" onclick="setModalService('padlet')">Padlet 토글</button>
+                        <button class="modal-btn" onclick="setModalService('discord')">Discord 토글</button>
+                        <button class="modal-btn" onclick="setModalService('instagram')">Instagram 토글</button>
+                        <button class="modal-btn" onclick="setModalService('facebook')">Facebook 토글</button>
+                    </div>
+                    <div class="modal-speed" style="margin-top: 10px;">
+                        <input type="text" id="modalServiceInput" placeholder="커스텀 서비스(도메인) 예: example.com">
+                        <button class="modal-btn" onclick="setCustomModalService()">적용</button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
         let lockStates = {};
+        let serviceStates = {};
         let pollInterval = null;
         let currentTab = 'scan';
         let totalScanned = 0;
@@ -1145,6 +1174,30 @@
             selectedDevice = null;
         }
 
+        function callServiceBlock(mac, service, state) {
+            fetch(`/api/arp/service/${mac}/${encodeURIComponent(service)}/${state}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        let msg = `${mac}: ${service} ${state === 'on' ? '차단 ON' : '차단 OFF'}`;
+                        if (data.forward_warning) {
+                            msg += ` (주의: ${data.forward_warning})`;
+                        }
+                        showToast(msg);
+                    } else {
+                        showToast(`오류: ${data.error}`, 'error');
+                    }
+                })
+                .catch(() => showToast('서비스 차단 요청 실패', 'error'));
+        }
+
+        function toggleServiceBlock(mac, service) {
+            const key = `${mac}-svc-${service}`;
+            const newState = serviceStates[key] === 'on' ? 'off' : 'on';
+            serviceStates[key] = newState;
+            callServiceBlock(mac, service, newState);
+        }
+
         function setModalSpeed() {
             if (!selectedDevice) return;
             const speed = document.getElementById('modalSpeedInput').value;
@@ -1173,6 +1226,22 @@
         function setModalLag(type, ms) {
             if (!selectedDevice) return;
             controlDevice(selectedDevice.mac, type, ms);
+        }
+
+        function setModalService(service) {
+            if (!selectedDevice) return;
+            toggleServiceBlock(selectedDevice.mac, service);
+        }
+
+        function setCustomModalService() {
+            if (!selectedDevice) return;
+            const input = document.getElementById('modalServiceInput');
+            const service = (input.value || '').trim().toLowerCase();
+            if (!service) {
+                showToast('서비스/도메인을 입력하세요', 'error');
+                return;
+            }
+            toggleServiceBlock(selectedDevice.mac, service);
         }
 
         function killAllDevices() {
@@ -1231,7 +1300,11 @@
                 .then(r => r.json())
                 .then(data => {
                     if (data.success) {
-                        showToast(`${mac}: ${action} - ${value}`);
+                        let msg = `${mac}: ${action} - ${value}`;
+                        if (data.forward_warning) {
+                            msg += ` (주의: ${data.forward_warning})`;
+                        }
+                        showToast(msg);
                     } else {
                         showToast(`오류: ${data.error}`, 'error');
                     }
