@@ -1,5 +1,6 @@
 import ipaddress
 import os
+import re
 import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -28,6 +29,7 @@ MAX_SCAN_HOSTS = int(os.getenv("MAX_SCAN_HOSTS", "0"))
 PING_WORKERS = int(os.getenv("PING_WORKERS", "128"))
 ARP_VERIFY_ALIVE = os.getenv("ARP_VERIFY_ALIVE", "false").lower() in ("1", "true", "yes", "on")
 USE_SCAPY_ARP = os.getenv("USE_SCAPY_ARP", "true").lower() in ("1", "true", "yes", "on")
+SCAN_NETWORK_CIDR = os.getenv("SCAN_NETWORK_CIDR", "").strip()
 
 
 def _sort_key_ip(value):
@@ -71,7 +73,13 @@ def _network_from_local_info(local_info):
     subnet_mask = local_info.get('subnet', '')
 
     try:
-        if subnet_mask and ('.' in subnet_mask or subnet_mask.startswith('/')):
+        if local_ip and gateway and subnet_mask and '.' in subnet_mask:
+            # If local IP and gateway are in different subnets, prefer gateway side.
+            local_net = ipaddress.ip_network(f"{local_ip}/{subnet_mask}", strict=False)
+            if ipaddress.ip_address(gateway) not in local_net:
+                return ipaddress.ip_network(f"{gateway}/{subnet_mask}", strict=False)
+
+        if subnet_mask and local_ip and ('.' in subnet_mask or subnet_mask.startswith('/')):
             mask = subnet_mask if subnet_mask.startswith('/') else subnet_mask
             return ipaddress.ip_network(f"{local_ip}/{mask}", strict=False)
         if gateway:
@@ -88,6 +96,71 @@ def _network_from_local_info(local_info):
     except Exception:
         return None
     return None
+
+
+def _arp_candidate_networks(max_candidates=3):
+    """Extract likely /24 networks from ARP table entries."""
+    counts = {}
+    try:
+        result = subprocess.run(
+            ['arp', '-a'],
+            capture_output=True,
+            timeout=3,
+            encoding='utf-8',
+            errors='replace'
+        )
+        for line in (result.stdout or '').splitlines():
+            m = re.search(r"(\d+\.\d+\.\d+\.\d+)", line)
+            if not m:
+                continue
+            ip = m.group(1)
+            try:
+                ip_obj = ipaddress.ip_address(ip)
+            except Exception:
+                continue
+            if not ip_obj.is_private:
+                continue
+            net = ipaddress.ip_network(f"{ip}/24", strict=False)
+            key = str(net)
+            counts[key] = counts.get(key, 0) + 1
+    except Exception:
+        pass
+
+    ranked = sorted(counts.items(), key=lambda x: x[1], reverse=True)
+    out = []
+    for cidr, _ in ranked[:max_candidates]:
+        try:
+            out.append(ipaddress.ip_network(cidr, strict=False))
+        except Exception:
+            continue
+    return out
+
+
+def _auto_candidate_networks(local_info):
+    candidates = []
+    seen = set()
+
+    base = _network_from_local_info(local_info)
+    if base is not None:
+        candidates.append(base)
+        seen.add(str(base))
+
+    for net in _arp_candidate_networks(max_candidates=4):
+        k = str(net)
+        if k in seen:
+            continue
+        candidates.append(net)
+        seen.add(k)
+
+    return candidates
+
+
+def resolve_auto_network(local_info=None):
+    info = local_info or get_local_info()
+    candidates = _auto_candidate_networks(info)
+    if not candidates:
+        return ""
+    return str(candidates[0])
 
 
 def scapy_arp_scan(network):
@@ -311,95 +384,130 @@ def arp_scan(verify_alive=ARP_VERIFY_ALIVE, cancel_event=None):
     return scan_network_by_ping(cancel_event=cancel_event)
 
 
-def scan_network(mode="fast", callback=None, cancel_event=None):
+def scan_network(mode="fast", callback=None, cancel_event=None, network_cidr=None):
     local_info = get_local_info()
 
     mdns_thread = threading.Thread(target=scan_mdns_services, daemon=True)
     mdns_thread.start()
 
     devices = []
-    network = _network_from_local_info(local_info)
+    selected_network = (network_cidr or SCAN_NETWORK_CIDR or "").strip()
+    network = None
+    candidate_networks = []
+    if selected_network:
+        try:
+            network = ipaddress.ip_network(selected_network, strict=False)
+            candidate_networks = [network]
+        except Exception:
+            print(f"[Scan] 잘못된 network override: {selected_network}")
+            network = None
+
+    if network is None:
+        candidate_networks = _auto_candidate_networks(local_info)
+        network = candidate_networks[0] if candidate_networks else None
 
     if network is None:
         return {
             "devices": [],
             "local_info": local_info,
             "scanned_at": datetime.now().isoformat(),
-            "total_found": 0
+            "total_found": 0,
+            "network": selected_network or ""
         }
 
     mode = (mode or "fast").lower()
     if mode not in ("fast", "deep"):
         mode = "fast"
 
-    all_ips = [str(ip) for ip in network.hosts()]
+    devices = []
+    scanned_networks = []
 
-    # Keep optional cap support via env var; default is unlimited.
-    if MAX_SCAN_HOSTS > 0 and len(all_ips) > MAX_SCAN_HOSTS:
-        print(f"[Scan] 스캔 범위가 큽니다({len(all_ips)} hosts). 상한 {MAX_SCAN_HOSTS}로 제한합니다.")
-        all_ips = all_ips[:MAX_SCAN_HOSTS]
+    # Auto fallback: try next candidate networks only when first result is too sparse.
+    if not selected_network and len(candidate_networks) > 1:
+        networks_to_try = candidate_networks[:3]
+    else:
+        networks_to_try = candidate_networks[:1]
 
-    total_hosts = len(all_ips)
+    for idx, net in enumerate(networks_to_try):
+        scanned_networks.append(str(net))
+        all_ips = [str(ip) for ip in net.hosts()]
 
-    # 0) Fast discover: Active ARP broadcast first (if scapy available)
-    scapy_devices = scapy_arp_scan(network) if mode == "fast" else []
-    if callback:
-        for d in scapy_devices:
-            callback(d, 0, total_hosts)
-            if cancel_event and cancel_event.is_set():
-                return {
-                    "devices": _merge_devices(scapy_devices),
-                    "local_info": local_info,
-                    "scanned_at": datetime.now().isoformat(),
-                    "total_found": len(scapy_devices),
-                    "cancelled": True
-                }
+        # Keep optional cap support via env var; default is unlimited.
+        if MAX_SCAN_HOSTS > 0 and len(all_ips) > MAX_SCAN_HOSTS:
+            print(f"[Scan] 스캔 범위가 큽니다({len(all_ips)} hosts). 상한 {MAX_SCAN_HOSTS}로 제한합니다.")
+            all_ips = all_ips[:MAX_SCAN_HOSTS]
 
-    # 1) ARP 결과를 먼저 반환 가능한 형태로 확보 (netcut처럼 빠르게 보이게)
-    # NOTE: keep this fast even in deep mode to avoid long blocking before progress starts.
-    arp_devices = arp_scan(verify_alive=False, cancel_event=cancel_event)
-    if callback:
-        for d in arp_devices:
-            callback(d, 0, total_hosts)
-            if cancel_event and cancel_event.is_set():
-                merged = _merge_devices(scapy_devices + arp_devices)
-                return {
-                    "devices": merged,
-                    "local_info": local_info,
-                    "scanned_at": datetime.now().isoformat(),
-                    "total_found": len(merged),
-                    "cancelled": True
-                }
+        total_hosts = len(all_ips)
 
-    # 2) 고속 ping 스윕으로 ARP 누락 기기 보강
-    ping_devices = []
-    processed = 0
-    with ThreadPoolExecutor(max_workers=PING_WORKERS) as executor:
-        futures = {executor.submit(scan_ip, ip, mode == "deep"): ip for ip in all_ips}
-        for future in as_completed(futures):
-            if cancel_event and cancel_event.is_set():
-                executor.shutdown(wait=False, cancel_futures=True)
-                break
-            processed += 1
-            try:
-                result = future.result()
-                if result:
-                    ping_devices.append(result)
+        # 0) Fast discover: Active ARP broadcast first (if scapy available)
+        scapy_devices = scapy_arp_scan(net) if mode == "fast" else []
+        if callback:
+            for d in scapy_devices:
+                callback(d, 0, total_hosts)
+                if cancel_event and cancel_event.is_set():
+                    return {
+                        "devices": _merge_devices(scapy_devices),
+                        "local_info": local_info,
+                        "scanned_at": datetime.now().isoformat(),
+                        "total_found": len(scapy_devices),
+                        "network": ", ".join(scanned_networks),
+                        "cancelled": True
+                    }
+
+        # 1) ARP-first merge
+        arp_devices = arp_scan(verify_alive=False, cancel_event=cancel_event)
+        if callback:
+            for d in arp_devices:
+                callback(d, 0, total_hosts)
+                if cancel_event and cancel_event.is_set():
+                    merged = _merge_devices(scapy_devices + arp_devices + devices)
+                    return {
+                        "devices": merged,
+                        "local_info": local_info,
+                        "scanned_at": datetime.now().isoformat(),
+                        "total_found": len(merged),
+                        "network": ", ".join(scanned_networks),
+                        "cancelled": True
+                    }
+
+        # 2) Ping sweep
+        ping_devices = []
+        processed = 0
+        with ThreadPoolExecutor(max_workers=PING_WORKERS) as executor:
+            futures = {executor.submit(scan_ip, ip, mode == "deep"): ip for ip in all_ips}
+            for future in as_completed(futures):
+                if cancel_event and cancel_event.is_set():
+                    executor.shutdown(wait=False, cancel_futures=True)
+                    break
+                processed += 1
+                try:
+                    result = future.result()
+                    if result:
+                        ping_devices.append(result)
+                        if callback:
+                            callback(result, processed, total_hosts)
+                    elif callback:
+                        callback(None, processed, total_hosts)
+                except Exception:
                     if callback:
-                        callback(result, processed, total_hosts)
-                elif callback:
-                    callback(None, processed, total_hosts)
-            except Exception:
-                if callback:
-                    callback(None, processed, total_hosts)
+                        callback(None, processed, total_hosts)
 
-    # 3) 결과 병합: ARP + Ping
-    devices = _merge_devices(scapy_devices + ping_devices + arp_devices)
+        # 3) merge with previous candidates
+        candidate_devices = _merge_devices(scapy_devices + ping_devices + arp_devices)
+        devices = _merge_devices(devices + candidate_devices)
+
+        # If first candidate already found meaningful devices, don't keep expanding.
+        if selected_network:
+            break
+        if idx == 0 and len(devices) <= 1:
+            continue
+        break
 
     return {
         "devices": devices,
         "local_info": local_info,
         "scanned_at": datetime.now().isoformat(),
         "total_found": len(devices),
+        "network": ", ".join(scanned_networks) if scanned_networks else str(network),
         "cancelled": bool(cancel_event and cancel_event.is_set())
     }

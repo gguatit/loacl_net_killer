@@ -11,13 +11,18 @@ import core.state as state
 from scanner import (
     get_local_info, 
     arp_scan, 
-    scan_network
+    scan_network,
+    resolve_auto_network,
 )
 
 app = Flask(__name__)
 
-def scan_worker(mode="fast"):
+def scan_worker(mode="fast", network_cidr=""):
     state.scan_mode = mode
+    if network_cidr:
+        state.scan_network = network_cidr.strip()
+    elif not state.scan_network:
+        state.scan_network = resolve_auto_network()
     state.scan_status = "scanning"
     state.scan_cancel_requested = False
     state.scan_cancel_event.clear()
@@ -36,8 +41,14 @@ def scan_worker(mode="fast"):
             state.scan_progress = max(0, min(99 if state.scan_status == "scanning" else 100, pct))
     
     try:
-        result = scan_network(mode=mode, callback=on_scan_update, cancel_event=state.scan_cancel_event)
+        result = scan_network(
+            mode=mode,
+            callback=on_scan_update,
+            cancel_event=state.scan_cancel_event,
+            network_cidr=state.scan_network,
+        )
         state.scan_results = result.get("devices", state.scan_results)
+        state.scan_network = result.get("network", state.scan_network)
         # ARP+Ping 병합 결과가 ping 대상 수보다 커질 수 있으므로 상태 지표를 보정한다.
         state.scan_total_hosts = max(state.scan_total_hosts, len(state.scan_results))
         if result.get("cancelled"):
@@ -68,6 +79,7 @@ def api_local_info():
 @app.route('/api/scan/start')
 def api_scan_start():
     mode = (request.args.get("mode", "fast") or "fast").lower()
+    network_cidr = (request.args.get("network", "") or "").strip()
     if mode not in ("fast", "deep"):
         mode = "fast"
 
@@ -77,14 +89,23 @@ def api_scan_start():
             "devices": state.scan_results,
             "progress": state.scan_progress,
             "mode": state.scan_mode,
+            "network": state.scan_network,
             "cancel_requested": state.scan_cancel_requested
         })
     
-    thread = threading.Thread(target=scan_worker, args=(mode,))
+    effective_network = network_cidr or resolve_auto_network()
+    state.scan_network = effective_network
+
+    thread = threading.Thread(target=scan_worker, args=(mode, network_cidr))
     thread.daemon = True
     thread.start()
     
-    return jsonify({"status": "started", "message": "Network scan started", "mode": mode})
+    return jsonify({
+        "status": "started",
+        "message": "Network scan started",
+        "mode": mode,
+        "network": effective_network,
+    })
 
 
 @app.route('/api/scan/cancel')
@@ -112,6 +133,7 @@ def api_scan_status():
         "last_scan": state.last_scan,
         "progress": state.scan_progress,
         "mode": state.scan_mode,
+        "network": state.scan_network,
         "processed_hosts": state.scan_processed_hosts,
         "total_hosts": state.scan_total_hosts,
         "found_hosts": len(state.scan_results),

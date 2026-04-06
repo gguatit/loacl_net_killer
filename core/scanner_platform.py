@@ -13,6 +13,18 @@ IS_WINDOWS = SYSTEM == "windows"
 IS_LINUX = SYSTEM == "linux"
 IS_MACOS = SYSTEM == "darwin"
 
+WINDOWS_VIRTUAL_ADAPTER_KEYWORDS = (
+    "virtual",
+    "vmware",
+    "hyper-v",
+    "vethernet",
+    "loopback",
+    "bluetooth",
+    "tailscale",
+    "wsl",
+    "docker",
+)
+
 OUI_VENDORS = {
     "000566": "ZTE",
     "10FFE0": "Tenda",
@@ -138,16 +150,7 @@ def get_local_info_linux():
 
 def get_local_info_windows():
     hostname = socket.gethostname()
-    local_ip = socket.gethostbyname(hostname)
-    try:
-        if local_ip.startswith('127.'):
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(('8.8.8.8', 80))
-            local_ip = s.getsockname()[0]
-            s.close()
-    except Exception:
-        pass
-
+    local_ip = ""
     mac_address = ""
     gateway = ""
     subnet = ""
@@ -163,49 +166,58 @@ def get_local_info_windows():
         except Exception:
             continue
 
-    lines = ipconfig_output.split('\n')
-    for i, line in enumerate(lines):
-        u = line.upper()
-        l = line.lower()
+    adapters = _parse_windows_ipconfig_adapters(ipconfig_output)
+    route_info = _get_windows_default_route_info()
 
-        if 'ETHERNET' in u or 'WIFI' in u or 'ADAPTER' in u:
-            continue
+    if route_info and route_info.get("interface_ip"):
+        route_ip = route_info["interface_ip"]
+        matched = next((a for a in adapters if a.get("ip") == route_ip), None)
+        if matched:
+            local_ip = matched.get("ip", "")
+            mac_address = matched.get("mac", "")
+            gateway = matched.get("gateway", "") or route_info.get("gateway", "")
+            subnet = matched.get("subnet", "")
+            dns_servers = matched.get("dns", [])
+        else:
+            # Keep interface IP from default route even when ipconfig block parsing fails.
+            local_ip = route_ip
+            gateway = route_info.get("gateway", "")
 
-        if 'PHY' in u or '물리' in l:
-            parts = line.split(':')
-            if len(parts) > 1:
-                m = parts[-1].strip()
-                if m and len(m) >= 12:
-                    mac_address = m
+    if not local_ip:
+        preferred = _select_best_windows_adapter(adapters)
+        if preferred:
+            local_ip = preferred.get("ip", "")
+            mac_address = preferred.get("mac", "")
+            gateway = preferred.get("gateway", "")
+            subnet = preferred.get("subnet", "")
+            dns_servers = preferred.get("dns", [])
 
-        if 'GATEWAY' in u or '게이트웨이' in l:
-            parts = line.split(':')
-            if len(parts) > 1:
-                gw = parts[-1].strip()
-                if gw and '.' in gw and not gw.startswith('fe80'):
-                    gateway = gw
-                    continue
-            if i + 1 < len(lines):
-                nxt = lines[i + 1].strip()
-                if '.' in nxt and not nxt.startswith('fe80'):
-                    gateway = nxt
+    if not local_ip:
+        try:
+            local_ip = socket.gethostbyname(hostname)
+        except Exception:
+            local_ip = ""
 
-        if 'SUBNET' in u or '서브넷' in l:
-            parts = line.split(':')
-            if len(parts) > 1:
-                subnet = parts[-1].strip()
-
-        if ('DNS' in u and 'SERVER' in u) or ('DNS' in l):
-            parts = line.split(':')
-            if len(parts) > 1:
-                dns = parts[-1].strip()
-                if dns and '.' in dns and dns not in dns_servers:
-                    dns_servers.append(dns)
+    if not local_ip or local_ip.startswith('127.'):
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(('8.8.8.8', 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+        except Exception:
+            pass
 
     if not gateway:
-        gateway = get_default_gateway_windows()
+        gateway = route_info.get("gateway", "") if route_info else get_default_gateway_windows()
     if not mac_address:
         mac_address = get_mac_address_windows()
+
+    if not subnet and local_ip:
+        matched = next((a for a in adapters if a.get("ip") == local_ip), None)
+        if matched:
+            subnet = matched.get("subnet", "")
+            if not dns_servers:
+                dns_servers = matched.get("dns", [])
 
     return {
         "hostname": hostname,
@@ -218,6 +230,171 @@ def get_local_info_windows():
         "platform": platform.platform(),
         "timestamp": datetime.now().isoformat()
     }
+
+
+def _parse_windows_ipconfig_adapters(ipconfig_output):
+    adapters = []
+    if not ipconfig_output:
+        return adapters
+
+    lines = ipconfig_output.splitlines()
+    current = None
+    pending = None
+
+    def flush_current():
+        nonlocal current
+        if not current:
+            return
+        if current.get("ip") and not current.get("disconnected"):
+            adapters.append({
+                "name": current.get("name", ""),
+                "ip": current.get("ip", ""),
+                "subnet": current.get("subnet", ""),
+                "gateway": current.get("gateway", ""),
+                "mac": current.get("mac", ""),
+                "dns": current.get("dns", []),
+            })
+        current = None
+
+    for raw in lines:
+        line = raw.rstrip("\r\n")
+        stripped = line.strip()
+        low = stripped.lower()
+
+        is_header = (
+            stripped.endswith(":") and (
+                "adapter" in low or "어댑터" in low
+            )
+        )
+        if is_header:
+            flush_current()
+            current = {
+                "name": stripped,
+                "ip": "",
+                "subnet": "",
+                "gateway": "",
+                "mac": "",
+                "dns": [],
+                "disconnected": False,
+            }
+            pending = None
+            continue
+
+        if not current:
+            continue
+
+        if "media disconnected" in low or "미디어 연결 끊김" in low:
+            current["disconnected"] = True
+
+        value = stripped.split(":", 1)[1].strip() if ":" in stripped else ""
+        parsed_ip = re.search(r"(\d+\.\d+\.\d+\.\d+)", value or stripped)
+
+        if "physical address" in low or "물리적 주소" in low:
+            m = re.search(r"([0-9A-Fa-f]{2}(?:-[0-9A-Fa-f]{2}){5})", value or stripped)
+            if m:
+                current["mac"] = m.group(1).upper()
+
+        if ("ipv4" in low or "ipv4 주소" in low) and parsed_ip and not current["ip"]:
+            current["ip"] = parsed_ip.group(1)
+
+        if ("subnet mask" in low or "서브넷" in low) and parsed_ip and not current["subnet"]:
+            current["subnet"] = parsed_ip.group(1)
+
+        if ("default gateway" in low or "기본 게이트웨이" in low):
+            pending = "gateway"
+            if parsed_ip and not current["gateway"]:
+                current["gateway"] = parsed_ip.group(1)
+                pending = None
+            continue
+
+        if ("dns servers" in low or "dns 서버" in low):
+            pending = "dns"
+            if parsed_ip and parsed_ip.group(1) not in current["dns"]:
+                current["dns"].append(parsed_ip.group(1))
+            continue
+
+        if pending == "gateway" and parsed_ip and not current["gateway"]:
+            current["gateway"] = parsed_ip.group(1)
+            pending = None
+
+        if pending == "dns" and parsed_ip:
+            dns_ip = parsed_ip.group(1)
+            if dns_ip not in current["dns"]:
+                current["dns"].append(dns_ip)
+            else:
+                pending = None
+
+    flush_current()
+
+    return adapters
+
+
+def _select_best_windows_adapter(adapters):
+    best = None
+    best_score = -10**9
+
+    for a in adapters:
+        ip = a.get("ip", "")
+        if not ip:
+            continue
+        if ip.startswith("169.254.") or ip.startswith("127."):
+            continue
+
+        score = 0
+        if a.get("gateway"):
+            score += 40
+        if a.get("subnet"):
+            score += 10
+        if a.get("mac"):
+            score += 5
+
+        name_lower = a.get("name", "").lower()
+        if any(k in name_lower for k in ("wi-fi", "wifi", "wireless", "이더넷", "ethernet", "무선")):
+            score += 30
+        if any(k in name_lower for k in WINDOWS_VIRTUAL_ADAPTER_KEYWORDS):
+            score -= 50
+
+        if ip.startswith("10.") or ip.startswith("11.") or ip.startswith("172.") or ip.startswith("192.168."):
+            score += 10
+
+        if score > best_score:
+            best_score = score
+            best = a
+
+    return best
+
+
+def _get_windows_default_route_info():
+    # Try to map default route to interface IP/gateway using route print output.
+    for enc in ["utf-8", "cp949", "euc-kr", "latin-1"]:
+        try:
+            result = subprocess.run(['route', 'print', '-4'], capture_output=True, encoding=enc, errors='replace', timeout=2)
+            lines = result.stdout.splitlines()
+            best = None
+            for line in lines:
+                parts = line.split()
+                # Expected: destination netmask gateway interface metric
+                if len(parts) < 5:
+                    continue
+                if parts[0] != '0.0.0.0' or parts[1] != '0.0.0.0':
+                    continue
+                gateway = parts[2]
+                interface_ip = parts[3]
+                try:
+                    metric = int(parts[4])
+                except Exception:
+                    metric = 9999
+                if not re.match(r"^\d+\.\d+\.\d+\.\d+$", gateway):
+                    continue
+                if not re.match(r"^\d+\.\d+\.\d+\.\d+$", interface_ip):
+                    continue
+                if best is None or metric < best["metric"]:
+                    best = {"gateway": gateway, "interface_ip": interface_ip, "metric": metric}
+            if best:
+                return best
+        except Exception:
+            continue
+    return None
 
 
 def get_local_info_macos():

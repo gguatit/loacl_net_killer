@@ -736,6 +736,7 @@
                     <option value="fast" selected>빠른 스캔</option>
                     <option value="deep">정밀 스캔</option>
                 </select>
+                <input id="scanNetwork" class="btn" style="width: 200px; text-align: left;" placeholder="대역 CIDR (예: 11.152.0.0/16)">
                 <button class="btn" id="arpBtn" onclick="loadArpTable()">ARP 테이블</button>
                 <button class="btn" onclick="loadLocalInfo()">정보 새로고침</button>
             </div>
@@ -1020,18 +1021,25 @@
             const cancelBtn = document.getElementById('cancelScanBtn');
             const status = document.getElementById('scanStatus');
             const mode = document.getElementById('scanMode').value || 'fast';
+            const networkInput = document.getElementById('scanNetwork');
+            const network = (networkInput && networkInput.value ? networkInput.value.trim() : '');
             
             btn.disabled = true;
             if (arpBtn) arpBtn.disabled = true;
             if (cancelBtn) cancelBtn.disabled = false;
             btn.innerHTML = '<span class="spinner"></span> 스캔 중...';
             status.className = 'status-bar scanning';
-            status.innerHTML = `<span><span class="spinner"></span> 네트워크 스캔 중... (모드: ${mode === 'deep' ? '정밀' : '빠른'})</span>`;
+            status.innerHTML = `<span><span class="spinner"></span> 네트워크 스캔 중... (모드: ${mode === 'deep' ? '정밀' : '빠른'}${network ? `, 대역: ${network}` : ''})</span>`;
             document.getElementById('progress').style.width = '0%';
             totalScanned = 0;
             scannedDevices = [];
+
+            let url = `/api/scan/start?mode=${encodeURIComponent(mode)}`;
+            if (network) {
+                url += `&network=${encodeURIComponent(network)}`;
+            }
             
-            fetch(`/api/scan/start?mode=${encodeURIComponent(mode)}`)
+            fetch(url)
                 .then(r => r.json())
                 .then(data => {
                     pollScanStatus();
@@ -1089,10 +1097,11 @@
             if (data.status === 'scanning') {
                 status.className = 'status-bar scanning';
                 const modeText = data.mode === 'deep' ? '정밀' : '빠른';
+                const networkText = data.network ? `, ${data.network}` : '';
                 const processed = data.processed_hosts || 0;
                 const total = data.total_hosts || 0;
                 const found = data.found_hosts || devices.length;
-                status.innerHTML = `<span><span class="spinner"></span> 장치 ${found}개 발견 (스캔 중..., ${modeText}, ${processed}/${total})</span>`;
+                status.innerHTML = `<span><span class="spinner"></span> 장치 ${found}개 발견 (스캔 중..., ${modeText}${networkText}, ${processed}/${total})</span>`;
                 progress.style.width = `${Math.min(data.progress || 0, 99)}%`;
             } else if (data.status === 'canceling') {
                 status.className = 'status-bar scanning';
@@ -1101,12 +1110,12 @@
             } else if (data.status === 'cancelled') {
                 status.className = 'status-bar';
                 const found = data.found_hosts || devices.length;
-                status.innerHTML = `<span>스캔 취소됨 (현재까지 ${found}개)</span>`;
+                status.innerHTML = `<span>스캔 취소됨 (현재까지 ${found}개${data.network ? `, 대역: ${data.network}` : ''})</span>`;
             } else if (data.status === 'completed') {
                 status.className = 'status-bar';
                 const modeText = data.mode === 'deep' ? '정밀' : '빠른';
                 const found = data.found_hosts || devices.length;
-                status.innerHTML = `<span>스캔 완료 (${modeText}, 총 ${found}개)</span>`;
+                status.innerHTML = `<span>스캔 완료 (${modeText}${data.network ? `, ${data.network}` : ''}, 총 ${found}개)</span>`;
                 progress.style.width = '100%';
                 if (data.last_scan) {
                     scanTime.textContent = `마지막 스캔: ${new Date(data.last_scan).toLocaleTimeString()}`;
